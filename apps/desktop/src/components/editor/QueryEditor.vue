@@ -1413,8 +1413,6 @@ onMounted(async () => {
 
   const dialect = SQLDialect.define({
     ...baseDialect.spec,
-    // 禁用 $$ 美元引用字符串解析，使 PL/pgSQL 函数体内的关键字能被正常高亮
-    doubleDollarQuotedStrings: !isPostgres,
     keywords: [baseDialect.spec.keywords || "", extraKeywords, plpgsqlKeywords].filter(Boolean).join(" "),
     types: [baseDialect.spec.types || "", plpgsqlTypes].filter(Boolean).join(" ") || undefined,
     builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
