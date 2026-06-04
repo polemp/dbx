@@ -44,8 +44,10 @@ import {
   type EditorTheme,
   type DesktopIconTheme,
   type DisconnectTabHandlingMode,
+  type CustomThemeColors,
 } from "@/stores/settingsStore";
 import { loadEditorTheme, editorFontTheme } from "@/lib/editorThemes";
+import ThemeCustomizerDialog from "./ThemeCustomizerDialog.vue";
 import { isTauriRuntime } from "@/lib/tauriRuntime";
 import { useTheme } from "@/composables/useTheme";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -103,6 +105,7 @@ const editFontFamily = ref(settingsStore.editorSettings.fontFamily);
 const editFontSize = ref(settingsStore.editorSettings.fontSize);
 const editUiScale = ref(settingsStore.editorSettings.uiScale);
 const editTheme = ref(settingsStore.editorSettings.theme);
+const showThemeCustomizer = ref(false);
 const editExecuteMode = ref(settingsStore.editorSettings.executeMode);
 const editWordWrap = ref(settingsStore.editorSettings.wordWrap);
 const editAppLayout = ref(settingsStore.editorSettings.appLayout);
@@ -402,6 +405,11 @@ function onFontFamilyChange(v: any) {
 
 function onThemeChange(v: any) {
   if (typeof v === "string") editTheme.value = v as typeof DEFAULT_EDITOR_SETTINGS.theme;
+}
+
+function handleThemeSave(colors: CustomThemeColors) {
+  settingsStore.updateEditorSettings({ customThemeColors: colors });
+  showThemeCustomizer.value = false;
 }
 
 function onDisconnectTabHandlingModeChange(v: any) {
@@ -1214,6 +1222,16 @@ watch(
                       </SelectItem>
                     </SelectContent>
                   </Select>
+                  <Button
+                    v-if="editTheme === 'custom'"
+                    variant="outline"
+                    size="sm"
+                    class="mt-2 w-full"
+                    @click="showThemeCustomizer = true"
+                  >
+                    <Settings class="mr-2 h-4 w-4" />
+                    自定义主题配置
+                  </Button>
                 </div>
               </div>
 
@@ -2532,6 +2550,13 @@ watch(
         </div>
       </div>
     </DialogContent>
+
+    <!-- Theme Customizer Dialog -->
+    <ThemeCustomizerDialog
+      v-model:open="showThemeCustomizer"
+      :colors="settingsStore.editorSettings.customThemeColors"
+      @save="handleThemeSave"
+    />
 
     <!-- Snippet Add/Edit Dialog -->
     <Dialog :open="snippetDialogOpen" @update:open="snippetDialogOpen = $event">
