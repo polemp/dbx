@@ -207,7 +207,7 @@ function handleImport() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
+    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle>自定义主题配置</DialogTitle>
       </DialogHeader>

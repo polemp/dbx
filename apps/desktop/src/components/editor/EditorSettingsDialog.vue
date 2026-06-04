@@ -422,15 +422,15 @@ const themeSelectValue = computed(() => {
 });
 
 const themeSelectOptions = computed(() => [
-  ...EDITOR_THEMES.filter((t) => t.value !== "custom").map((t) => ({
-    value: t.value,
-    label: t.value === "app" ? t("settings.followAppTheme") : t.label,
-    dark: t.dark,
+  ...EDITOR_THEMES.filter((theme) => theme.value !== "custom").map((theme) => ({
+    value: theme.value,
+    label: theme.value === "app" ? t("settings.followAppTheme") : theme.label,
+    dark: theme.dark,
     isCustom: false,
   })),
-  ...editCustomThemes.value.map((t) => ({
-    value: `custom:${t.id}`,
-    label: t.name,
+  ...editCustomThemes.value.map((theme) => ({
+    value: `custom:${theme.id}`,
+    label: theme.name,
     dark: true,
     isCustom: true,
   })),
