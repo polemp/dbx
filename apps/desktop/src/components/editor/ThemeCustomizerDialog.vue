@@ -18,7 +18,7 @@ interface Props {
 const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "update:open", value: boolean): void;
-  (e: "save", themes: CustomTheme[]): void;
+  (e: "save", themes: CustomTheme[], activeId: string): void;
 }>();
 
 const localThemes = ref<CustomTheme[]>([]);
@@ -123,6 +123,7 @@ function handleSave() {
   emit(
     "save",
     localThemes.value.map((t) => ({ ...t })),
+    activeEditId.value,
   );
   emit("update:open", false);
 }
@@ -206,7 +207,7 @@ function handleImport() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+    <DialogContent class="max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle>自定义主题配置</DialogTitle>
       </DialogHeader>

@@ -414,17 +414,43 @@ function onFontFamilyChange(v: any) {
   if (typeof v === "string") editFontFamily.value = v;
 }
 
+const themeSelectValue = computed(() => {
+  if (editTheme.value === "custom") {
+    return `custom:${editActiveCustomThemeId.value}`;
+  }
+  return editTheme.value;
+});
+
+const themeSelectOptions = computed(() => [
+  ...EDITOR_THEMES.filter((t) => t.value !== "custom").map((t) => ({
+    value: t.value,
+    label: t.value === "app" ? t("settings.followAppTheme") : t.label,
+    dark: t.dark,
+    isCustom: false,
+  })),
+  ...editCustomThemes.value.map((t) => ({
+    value: `custom:${t.id}`,
+    label: t.name,
+    dark: true,
+    isCustom: true,
+  })),
+]);
+
 function onThemeChange(v: any) {
-  if (typeof v === "string") editTheme.value = v as typeof DEFAULT_EDITOR_SETTINGS.theme;
+  if (typeof v !== "string") return;
+  if (v.startsWith("custom:")) {
+    editTheme.value = "custom";
+    editActiveCustomThemeId.value = v.slice(7);
+  } else {
+    editTheme.value = v as typeof DEFAULT_EDITOR_SETTINGS.theme;
+  }
 }
 
-function handleThemeSave(updatedThemes: CustomTheme[]) {
+function handleThemeSave(updatedThemes: CustomTheme[], activeId: string) {
   editCustomThemes.value = updatedThemes;
+  editActiveCustomThemeId.value = activeId;
+  editTheme.value = "custom";
   showThemeCustomizer.value = false;
-}
-
-function handleActiveThemeChange(v: any) {
-  if (typeof v === "string") editActiveCustomThemeId.value = v;
 }
 
 function onDisconnectTabHandlingModeChange(v: any) {
@@ -1217,12 +1243,12 @@ watch(
                 <!-- Theme -->
                 <div class="space-y-2">
                   <Label>{{ t("settings.theme") }}</Label>
-                  <Select :model-value="editTheme" @update:model-value="onThemeChange">
+                  <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
                     <SelectTrigger>
                       <SelectValue :placeholder="t('settings.selectTheme')" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem v-for="theme in EDITOR_THEMES" :key="theme.value" :value="theme.value">
+                      <SelectItem v-for="theme in themeSelectOptions" :key="theme.value" :value="theme.value">
                         <div class="flex items-center gap-2">
                           <span
                             class="h-3 w-3 rounded-full border"
@@ -1232,27 +1258,20 @@ watch(
                                 : 'bg-muted-foreground/30 border-muted-foreground/40'
                             "
                           />
-                          {{ theme.value === "app" ? t("settings.followAppTheme") : theme.label }}
+                          {{ theme.label }}
                         </div>
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <template v-if="editTheme === 'custom'">
-                    <Select :model-value="editActiveCustomThemeId" @update:model-value="handleActiveThemeChange">
-                      <SelectTrigger class="mt-2">
-                        <SelectValue placeholder="选择自定义主题" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="theme in editCustomThemes" :key="theme.id" :value="theme.id">
-                          {{ theme.name }}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button variant="outline" class="mt-2 h-9 w-full" @click="showThemeCustomizer = true">
-                      <Settings class="mr-2 h-4 w-4" />
-                      自定义主题配置
-                    </Button>
-                  </template>
+                  <Button
+                    v-if="editTheme === 'custom'"
+                    variant="outline"
+                    class="mt-2 h-9 w-full"
+                    @click="showThemeCustomizer = true"
+                  >
+                    <Settings class="mr-2 h-4 w-4" />
+                    自定义主题配置
+                  </Button>
                 </div>
               </div>
 
