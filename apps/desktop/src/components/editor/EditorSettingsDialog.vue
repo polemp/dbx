@@ -1266,7 +1266,7 @@ watch(
                   <Button
                     v-if="editTheme === 'custom'"
                     variant="outline"
-                    class="mt-2 h-9 w-full"
+                    class="mt-2 h-9 w-auto px-4"
                     @click="showThemeCustomizer = true"
                   >
                     <Settings class="mr-2 h-4 w-4" />

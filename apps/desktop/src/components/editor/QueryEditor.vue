@@ -1406,7 +1406,7 @@ onMounted(async () => {
   // PL/pgSQL 扩展：为 PostgreSQL 函数/存储过程体添加过程语言关键字和内置变量
   const isPostgres = props.dialect === "postgres";
   const plpgsqlKeywords = isPostgres ? "PERFORM" : "";
-  const plpgsqlTypes = isPostgres ? " RECORD" : "";
+  const plpgsqlTypes = isPostgres ? " RECORD JSON JSONB" : "";
   const plpgsqlBuiltin = isPostgres
     ? "SQLERRM TG_NAME TG_WHEN TG_LEVEL TG_OP TG_RELID TG_RELNAME TG_TABLE_NAME TG_TABLE_SCHEMA TG_NARGS TG_ARGV"
     : "";

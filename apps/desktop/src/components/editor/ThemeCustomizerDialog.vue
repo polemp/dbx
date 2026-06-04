@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { CustomTheme, CustomThemeColors } from "@/stores/settingsStore";
 import { DEFAULT_CUSTOM_THEME_COLORS } from "@/stores/settingsStore";
-import { Plus, Trash2, Copy, Pencil } from "@lucide/vue";
+import { Plus, Trash2, Copy, Pencil, ChevronDown } from "@lucide/vue";
 
 interface Props {
   open: boolean;
@@ -75,6 +75,23 @@ const colorItems = [
   { key: "type" as const, label: "类型", example: "INTEGER, TEXT", num: "⑨" },
   { key: "builtin" as const, label: "内置变量", example: "FOUND, SQLERRM", num: "⑩" },
 ];
+
+// 基本调色板颜色（类似 Windows 颜色选择器）
+const basicColors = [
+  ["#000000", "#7f7f7f", "#880015", "#ed1c24", "#ff7f27", "#fff200", "#22b14c", "#00a2e8"],
+  ["#3f48cc", "#a349a4", "#ffffff", "#c3c3c3", "#b97a57", "#ffaec9", "#ffc90e", "#efe4b0"],
+];
+
+const expandedPalette = ref<string | null>(null);
+
+function togglePalette(key: string) {
+  expandedPalette.value = expandedPalette.value === key ? null : key;
+}
+
+function applyBasicColor(key: keyof CustomThemeColors, color: string) {
+  handleColorChange(key, color);
+  expandedPalette.value = null;
+}
 
 const previewCode = computed(() => {
   const c = localColors.value;
@@ -207,7 +224,7 @@ function handleImport() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col">
+    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col" @click="expandedPalette = null">
       <DialogHeader>
         <DialogTitle>自定义主题配置</DialogTitle>
       </DialogHeader>
@@ -280,25 +297,61 @@ function handleImport() {
 
               <!-- 颜色配置列表 -->
               <div class="grid grid-cols-2 gap-3">
-                <div v-for="item in colorItems" :key="item.key" class="flex items-center gap-3 rounded-lg border p-3">
+                <div
+                  v-for="item in colorItems"
+                  :key="item.key"
+                  class="relative flex items-center gap-3 rounded-lg border p-3"
+                >
                   <span class="text-xl font-bold w-8 text-center shrink-0">{{ item.num }}</span>
                   <div class="flex-1 min-w-0">
                     <div class="font-medium text-sm">{{ item.label }}</div>
                     <div class="text-xs text-muted-foreground truncate">{{ item.example }}</div>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
-                    <input
-                      type="color"
-                      :value="localColors[item.key]"
-                      @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
-                      class="h-8 w-8 cursor-pointer rounded border-0 p-0"
-                    />
-                    <input
-                      type="text"
-                      :value="localColors[item.key]"
-                      @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
-                      class="w-20 rounded border px-2 py-1 text-xs font-mono"
-                    />
+                    <!-- 颜色方块 + 下拉箭头 -->
+                    <div class="relative">
+                      <button
+                        type="button"
+                        class="flex items-center gap-0.5 rounded border p-0.5 hover:bg-muted transition-colors"
+                        @click="togglePalette(item.key)"
+                      >
+                        <div class="h-6 w-6 rounded-sm" :style="{ backgroundColor: localColors[item.key] }" />
+                        <ChevronDown class="h-3 w-3 text-muted-foreground" />
+                      </button>
+                      <!-- 调色板弹出层 -->
+                      <div
+                        v-if="expandedPalette === item.key"
+                        class="absolute right-0 top-full z-50 mt-1 rounded-lg border bg-popover p-2 shadow-lg"
+                        @click.stop
+                      >
+                        <div class="space-y-1">
+                          <div v-for="(row, rowIndex) in basicColors" :key="rowIndex" class="flex gap-1">
+                            <button
+                              v-for="color in row"
+                              :key="color"
+                              type="button"
+                              class="h-5 w-5 rounded-sm border border-border/50 hover:scale-110 transition-transform"
+                              :style="{ backgroundColor: color }"
+                              @click="applyBasicColor(item.key, color)"
+                            />
+                          </div>
+                        </div>
+                        <div class="mt-2 pt-2 border-t flex items-center gap-2">
+                          <input
+                            type="color"
+                            :value="localColors[item.key]"
+                            @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                            class="h-6 w-6 cursor-pointer rounded border-0 p-0"
+                          />
+                          <input
+                            type="text"
+                            :value="localColors[item.key]"
+                            @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                            class="w-20 rounded border px-2 py-0.5 text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
