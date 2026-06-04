@@ -1,12 +1,166 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorTheme } from "@/stores/settingsStore";
 import type { AppThemeAppearance } from "@/lib/appTheme";
+import { tags } from "@lezer/highlight";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 
 type CodeMirrorStyleSpec = Parameters<typeof import("@codemirror/view").EditorView.theme>[0];
 type LucideIconNode = Array<[string, Record<string, string>]>;
 
 export const EDITOR_FONT_SIZE_CSS_VAR = "--dbx-editor-font-size";
 export const EDITOR_FONT_FAMILY_CSS_VAR = "--dbx-editor-font-family";
+
+// ==================== 自定义主题配置 ====================
+// 在这里修改你喜欢的颜色！
+
+const customThemeColors = {
+  // 背景色
+  background: "#1e1e2e", // 编辑器背景
+  foreground: "#cdd6f4", // 默认文字颜色
+  lineNumber: "#6c7086", // 行号颜色
+  lineNumberActive: "#cdd6f4", // 当前行号颜色
+  selection: "#313244", // 选中文本背景
+  cursor: "#f5e0dc", // 光标颜色
+
+  // 语法高亮颜色
+  keyword: "#cba6f7", // 关键字 (SELECT, FROM, WHERE 等)
+  string: "#a6e3a1", // 字符串
+  number: "#fab387", // 数字
+  comment: "#6c7086", // 注释
+  type: "#89b4fa", // 类型 (INTEGER, TEXT 等)
+  variable: "#f38ba8", // 变量
+  function: "#89dceb", // 函数
+  operator: "#89b4fa", // 运算符
+  punctuation: "#9399b2", // 标点符号
+  property: "#f9e2af", // 属性/字段名
+  tag: "#cba6f7", // XML/HTML 标签
+  attribute: "#fab387", // 属性值
+  className: "#f9e2af", // 类名
+
+  // UI 元素
+  gutterBackground: "#181825", // 侧边栏背景
+  activeLine: "#313244", // 当前行高亮
+  matchingBracket: "#45475a", // 匹配括号背景
+
+  // 特殊
+  builtin: "#89dceb", // 内置函数
+  meta: "#cdd6f4", // 元信息
+  invalid: "#f38ba8", // 无效字符
+};
+
+/** 创建自定义 CodeMirror 主题 */
+function createCustomTheme(EditorView: typeof import("@codemirror/view").EditorView): Extension {
+  const theme = EditorView.theme(
+    {
+      "&": {
+        backgroundColor: customThemeColors.background,
+        color: customThemeColors.foreground,
+      },
+      ".cm-content": {
+        caretColor: customThemeColors.cursor,
+      },
+      ".cm-cursor": {
+        borderLeftColor: customThemeColors.cursor,
+      },
+      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+        {
+          backgroundColor: customThemeColors.selection,
+        },
+      ".cm-activeLine": {
+        backgroundColor: customThemeColors.activeLine,
+      },
+      ".cm-gutters": {
+        backgroundColor: customThemeColors.gutterBackground,
+        color: customThemeColors.lineNumber,
+        borderRight: "1px solid #313244",
+      },
+      ".cm-activeLineGutter": {
+        backgroundColor: customThemeColors.activeLine,
+        color: customThemeColors.lineNumberActive,
+      },
+      ".cm-matchingBracket": {
+        backgroundColor: customThemeColors.matchingBracket,
+        outline: "none",
+      },
+    },
+    { dark: true },
+  );
+
+  const highlightStyle = HighlightStyle.define([
+    { tag: tags.keyword, color: customThemeColors.keyword },
+    { tag: tags.controlKeyword, color: customThemeColors.keyword },
+    { tag: tags.definitionKeyword, color: customThemeColors.keyword },
+    { tag: tags.moduleKeyword, color: customThemeColors.keyword },
+    { tag: tags.operatorKeyword, color: customThemeColors.keyword },
+    { tag: tags.string, color: customThemeColors.string },
+    { tag: tags.special(tags.string), color: customThemeColors.string },
+    { tag: tags.number, color: customThemeColors.number },
+    { tag: tags.integer, color: customThemeColors.number },
+    { tag: tags.float, color: customThemeColors.number },
+    { tag: tags.comment, color: customThemeColors.comment, fontStyle: "italic" },
+    { tag: tags.lineComment, color: customThemeColors.comment, fontStyle: "italic" },
+    { tag: tags.blockComment, color: customThemeColors.comment, fontStyle: "italic" },
+    { tag: tags.typeName, color: customThemeColors.type },
+    { tag: tags.typeOperator, color: customThemeColors.type },
+    { tag: tags.variableName, color: customThemeColors.variable },
+    { tag: tags.definition(tags.variableName), color: customThemeColors.variable },
+    { tag: tags.function(tags.variableName), color: customThemeColors.function },
+    { tag: tags.function(tags.propertyName), color: customThemeColors.function },
+    { tag: tags.standard(tags.variableName), color: customThemeColors.builtin },
+    { tag: tags.propertyName, color: customThemeColors.property },
+    { tag: tags.operator, color: customThemeColors.operator },
+    { tag: tags.compareOperator, color: customThemeColors.operator },
+    { tag: tags.logicOperator, color: customThemeColors.operator },
+    { tag: tags.arithmeticOperator, color: customThemeColors.operator },
+    { tag: tags.punctuation, color: customThemeColors.punctuation },
+    { tag: tags.paren, color: customThemeColors.punctuation },
+    { tag: tags.brace, color: customThemeColors.punctuation },
+    { tag: tags.bracket, color: customThemeColors.punctuation },
+    { tag: tags.tagName, color: customThemeColors.tag },
+    { tag: tags.attributeName, color: customThemeColors.attribute },
+    { tag: tags.attributeValue, color: customThemeColors.string },
+    { tag: tags.className, color: customThemeColors.className },
+    { tag: tags.bool, color: customThemeColors.keyword },
+    { tag: tags.null, color: customThemeColors.keyword },
+    { tag: tags.meta, color: customThemeColors.meta },
+    { tag: tags.invalid, color: customThemeColors.invalid },
+    { tag: tags.heading, color: customThemeColors.keyword, fontWeight: "bold" },
+    { tag: tags.heading1, color: customThemeColors.keyword, fontWeight: "bold" },
+    { tag: tags.heading2, color: customThemeColors.keyword, fontWeight: "bold" },
+    { tag: tags.heading3, color: customThemeColors.keyword, fontWeight: "bold" },
+    { tag: tags.strong, color: customThemeColors.foreground, fontWeight: "bold" },
+    { tag: tags.emphasis, color: customThemeColors.foreground, fontStyle: "italic" },
+    { tag: tags.link, color: customThemeColors.type, textDecoration: "underline" },
+    { tag: tags.url, color: customThemeColors.type, textDecoration: "underline" },
+    { tag: tags.labelName, color: customThemeColors.property },
+    { tag: tags.namespace, color: customThemeColors.className },
+    { tag: tags.macroName, color: customThemeColors.function },
+    { tag: tags.literal, color: customThemeColors.string },
+    { tag: tags.special(tags.string), color: customThemeColors.string },
+    { tag: tags.regexp, color: customThemeColors.string },
+    { tag: tags.escape, color: customThemeColors.string },
+    { tag: tags.processingInstruction, color: customThemeColors.keyword },
+    { tag: tags.inserted, color: customThemeColors.string },
+    { tag: tags.deleted, color: customThemeColors.invalid },
+    { tag: tags.changed, color: customThemeColors.property },
+    { tag: tags.self, color: customThemeColors.keyword },
+    { tag: tags.derefOperator, color: customThemeColors.operator },
+    { tag: tags.unit, color: customThemeColors.type },
+    { tag: tags.angleBracket, color: customThemeColors.punctuation },
+    { tag: tags.annotation, color: customThemeColors.property },
+    { tag: tags.modifier, color: customThemeColors.keyword },
+    { tag: tags.list, color: customThemeColors.foreground },
+    { tag: tags.quote, color: customThemeColors.string, fontStyle: "italic" },
+    { tag: tags.monospace, color: customThemeColors.foreground },
+    { tag: tags.strikethrough, color: customThemeColors.invalid, textDecoration: "line-through" },
+    { tag: tags.contentSeparator, color: customThemeColors.operator },
+    { tag: tags.special(tags.name), color: customThemeColors.builtin },
+  ]);
+
+  return [theme, syntaxHighlighting(highlightStyle)];
+}
+
+// ======================================================
 
 const TABLE_ICON: LucideIconNode = [
   ["path", { d: "M12 3v18" }],
@@ -90,6 +244,8 @@ export async function loadEditorTheme(
       return (await import("@uiw/codemirror-theme-duotone")).duotoneDark;
     case "xcode":
       return (await import("@uiw/codemirror-theme-xcode")).xcodeLight;
+    case "custom":
+      return createCustomTheme((await import("@codemirror/view")).EditorView);
     default:
       return (await import("@codemirror/theme-one-dark")).oneDark;
   }

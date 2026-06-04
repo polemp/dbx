@@ -179,7 +179,8 @@ export type EditorTheme =
   | "material"
   | "duotone-light"
   | "duotone-dark"
-  | "xcode";
+  | "xcode"
+  | "custom";
 
 const STRUCTURE_EDITOR_DENSITIES = ["compact", "standard", "comfortable"] as const;
 export type StructureEditorDensity = (typeof STRUCTURE_EDITOR_DENSITIES)[number];
@@ -235,6 +236,7 @@ export const EDITOR_THEMES: { value: EditorTheme; label: string; dark: boolean }
   { value: "duotone-light", label: "Duotone Light", dark: false },
   { value: "duotone-dark", label: "Duotone Dark", dark: true },
   { value: "xcode", label: "Xcode", dark: false },
+  { value: "custom", label: "Custom (可自定义)", dark: true },
 ];
 
 const EDITOR_THEME_VALUES = new Set<EditorTheme>(EDITOR_THEMES.map((theme) => theme.value));
