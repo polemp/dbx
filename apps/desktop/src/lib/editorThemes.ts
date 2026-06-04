@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { EditorTheme } from "@/stores/settingsStore";
+import type { EditorTheme, CustomThemeColors } from "@/stores/settingsStore";
 import type { AppThemeAppearance } from "@/lib/appTheme";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -10,76 +10,72 @@ type LucideIconNode = Array<[string, Record<string, string>]>;
 export const EDITOR_FONT_SIZE_CSS_VAR = "--dbx-editor-font-size";
 export const EDITOR_FONT_FAMILY_CSS_VAR = "--dbx-editor-font-family";
 
-// ==================== 自定义主题配置 ====================
+// ==================== 自定义主题配�?====================
 // 在这里修改你喜欢的颜色！
 
 const customThemeColors = {
-  // 背景色
-  background: "#1e1e2e", // 编辑器背景
-  foreground: "#cdd6f4", // 默认文字颜色
+  // 背景�?  background: "#1e1e2e", // 编辑器背�?  foreground: "#cdd6f4", // 默认文字颜色
   lineNumber: "#6c7086", // 行号颜色
   lineNumberActive: "#cdd6f4", // 当前行号颜色
   selection: "#313244", // 选中文本背景
   cursor: "#f5e0dc", // 光标颜色
 
   // 语法高亮颜色
-  keyword: "#cba6f7", // 关键字 (SELECT, FROM, WHERE 等)
-  string: "#a6e3a1", // 字符串
-  number: "#fab387", // 数字
+  keyword: "#cba6f7", // 关键�?(SELECT, FROM, WHERE �?
+  string: "#a6e3a1", // 字符�?  number: "#fab387", // 数字
   comment: "#6c7086", // 注释
-  type: "#89b4fa", // 类型 (INTEGER, TEXT 等)
+  type: "#89b4fa", // 类型 (INTEGER, TEXT �?
   variable: "#f38ba8", // 变量
   function: "#89dceb", // 函数
-  operator: "#89b4fa", // 运算符
-  punctuation: "#9399b2", // 标点符号
-  property: "#f9e2af", // 属性/字段名
-  tag: "#cba6f7", // XML/HTML 标签
-  attribute: "#fab387", // 属性值
-  className: "#f9e2af", // 类名
+  operator: "#89b4fa", // 运算�?  punctuation: "#9399b2", // 标点符号
+  property: "#f9e2af", // 属�?字段�?  tag: "#cba6f7", // XML/HTML 标签
+  attribute: "#fab387", // 属性�?  className: "#f9e2af", // 类名
 
   // UI 元素
-  gutterBackground: "#181825", // 侧边栏背景
-  activeLine: "#313244", // 当前行高亮
-  matchingBracket: "#45475a", // 匹配括号背景
+  gutterBackground: "#181825", // 侧边栏背�?  activeLine: "#313244", // 当前行高�?  matchingBracket: "#45475a", // 匹配括号背景
 
   // 特殊
   builtin: "#89dceb", // 内置函数
-  meta: "#cdd6f4", // 元信息
-  invalid: "#f38ba8", // 无效字符
+  meta: "#cdd6f4", // 元信�?  invalid: "#f38ba8", // 无效字符
 };
 
-/** 创建自定义 CodeMirror 主题 */
-function createCustomTheme(EditorView: typeof import("@codemirror/view").EditorView): Extension {
+/** 创建自定�?CodeMirror 主题 */
+function createCustomTheme(
+  EditorView: typeof import("@codemirror/view").EditorView,
+  colors?: CustomThemeColors,
+): Extension {
+  const c = { ...customThemeColors, ...(colors || {}) };
+
   const theme = EditorView.theme(
     {
       "&": {
-        backgroundColor: customThemeColors.background,
-        color: customThemeColors.foreground,
+        backgroundColor: c.background,
+        color: c.foreground,
       },
       ".cm-content": {
-        caretColor: customThemeColors.cursor,
+        caretColor: c.cursor,
       },
       ".cm-cursor": {
-        borderLeftColor: customThemeColors.cursor,
+        borderLeftColor: c.cursor,
       },
       "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
         {
-          backgroundColor: customThemeColors.selection,
+          backgroundColor: c.selection,
         },
       ".cm-activeLine": {
-        backgroundColor: customThemeColors.activeLine,
+        backgroundColor: c.activeLine,
       },
       ".cm-gutters": {
-        backgroundColor: customThemeColors.gutterBackground,
-        color: customThemeColors.lineNumber,
+        backgroundColor: c.gutterBackground,
+        color: c.lineNumber,
         borderRight: "1px solid #313244",
       },
       ".cm-activeLineGutter": {
-        backgroundColor: customThemeColors.activeLine,
-        color: customThemeColors.lineNumberActive,
+        backgroundColor: c.activeLine,
+        color: c.lineNumberActive,
       },
       ".cm-matchingBracket": {
-        backgroundColor: customThemeColors.matchingBracket,
+        backgroundColor: c.matchingBracket,
         outline: "none",
       },
     },
@@ -87,74 +83,74 @@ function createCustomTheme(EditorView: typeof import("@codemirror/view").EditorV
   );
 
   const highlightStyle = HighlightStyle.define([
-    { tag: tags.keyword, color: customThemeColors.keyword },
-    { tag: tags.controlKeyword, color: customThemeColors.keyword },
-    { tag: tags.definitionKeyword, color: customThemeColors.keyword },
-    { tag: tags.moduleKeyword, color: customThemeColors.keyword },
-    { tag: tags.operatorKeyword, color: customThemeColors.keyword },
-    { tag: tags.string, color: customThemeColors.string },
-    { tag: tags.special(tags.string), color: customThemeColors.string },
-    { tag: tags.number, color: customThemeColors.number },
-    { tag: tags.integer, color: customThemeColors.number },
-    { tag: tags.float, color: customThemeColors.number },
-    { tag: tags.comment, color: customThemeColors.comment, fontStyle: "italic" },
-    { tag: tags.lineComment, color: customThemeColors.comment, fontStyle: "italic" },
-    { tag: tags.blockComment, color: customThemeColors.comment, fontStyle: "italic" },
-    { tag: tags.typeName, color: customThemeColors.type },
-    { tag: tags.typeOperator, color: customThemeColors.type },
-    { tag: tags.variableName, color: customThemeColors.variable },
-    { tag: tags.definition(tags.variableName), color: customThemeColors.variable },
-    { tag: tags.function(tags.variableName), color: customThemeColors.function },
-    { tag: tags.function(tags.propertyName), color: customThemeColors.function },
-    { tag: tags.standard(tags.variableName), color: customThemeColors.builtin },
-    { tag: tags.propertyName, color: customThemeColors.property },
-    { tag: tags.operator, color: customThemeColors.operator },
-    { tag: tags.compareOperator, color: customThemeColors.operator },
-    { tag: tags.logicOperator, color: customThemeColors.operator },
-    { tag: tags.arithmeticOperator, color: customThemeColors.operator },
-    { tag: tags.punctuation, color: customThemeColors.punctuation },
-    { tag: tags.paren, color: customThemeColors.punctuation },
-    { tag: tags.brace, color: customThemeColors.punctuation },
-    { tag: tags.bracket, color: customThemeColors.punctuation },
-    { tag: tags.tagName, color: customThemeColors.tag },
-    { tag: tags.attributeName, color: customThemeColors.attribute },
-    { tag: tags.attributeValue, color: customThemeColors.string },
-    { tag: tags.className, color: customThemeColors.className },
-    { tag: tags.bool, color: customThemeColors.keyword },
-    { tag: tags.null, color: customThemeColors.keyword },
-    { tag: tags.meta, color: customThemeColors.meta },
-    { tag: tags.invalid, color: customThemeColors.invalid },
-    { tag: tags.heading, color: customThemeColors.keyword, fontWeight: "bold" },
-    { tag: tags.heading1, color: customThemeColors.keyword, fontWeight: "bold" },
-    { tag: tags.heading2, color: customThemeColors.keyword, fontWeight: "bold" },
-    { tag: tags.heading3, color: customThemeColors.keyword, fontWeight: "bold" },
-    { tag: tags.strong, color: customThemeColors.foreground, fontWeight: "bold" },
-    { tag: tags.emphasis, color: customThemeColors.foreground, fontStyle: "italic" },
-    { tag: tags.link, color: customThemeColors.type, textDecoration: "underline" },
-    { tag: tags.url, color: customThemeColors.type, textDecoration: "underline" },
-    { tag: tags.labelName, color: customThemeColors.property },
-    { tag: tags.namespace, color: customThemeColors.className },
-    { tag: tags.macroName, color: customThemeColors.function },
-    { tag: tags.literal, color: customThemeColors.string },
-    { tag: tags.special(tags.string), color: customThemeColors.string },
-    { tag: tags.regexp, color: customThemeColors.string },
-    { tag: tags.escape, color: customThemeColors.string },
-    { tag: tags.processingInstruction, color: customThemeColors.keyword },
-    { tag: tags.inserted, color: customThemeColors.string },
-    { tag: tags.deleted, color: customThemeColors.invalid },
-    { tag: tags.changed, color: customThemeColors.property },
-    { tag: tags.self, color: customThemeColors.keyword },
-    { tag: tags.derefOperator, color: customThemeColors.operator },
-    { tag: tags.unit, color: customThemeColors.type },
-    { tag: tags.angleBracket, color: customThemeColors.punctuation },
-    { tag: tags.annotation, color: customThemeColors.property },
-    { tag: tags.modifier, color: customThemeColors.keyword },
-    { tag: tags.list, color: customThemeColors.foreground },
-    { tag: tags.quote, color: customThemeColors.string, fontStyle: "italic" },
-    { tag: tags.monospace, color: customThemeColors.foreground },
-    { tag: tags.strikethrough, color: customThemeColors.invalid, textDecoration: "line-through" },
-    { tag: tags.contentSeparator, color: customThemeColors.operator },
-    { tag: tags.special(tags.name), color: customThemeColors.builtin },
+    { tag: tags.keyword, color: c.keyword },
+    { tag: tags.controlKeyword, color: c.keyword },
+    { tag: tags.definitionKeyword, color: c.keyword },
+    { tag: tags.moduleKeyword, color: c.keyword },
+    { tag: tags.operatorKeyword, color: c.keyword },
+    { tag: tags.string, color: c.string },
+    { tag: tags.special(tags.string), color: c.string },
+    { tag: tags.number, color: c.number },
+    { tag: tags.integer, color: c.number },
+    { tag: tags.float, color: c.number },
+    { tag: tags.comment, color: c.comment, fontStyle: "italic" },
+    { tag: tags.lineComment, color: c.comment, fontStyle: "italic" },
+    { tag: tags.blockComment, color: c.comment, fontStyle: "italic" },
+    { tag: tags.typeName, color: c.type },
+    { tag: tags.typeOperator, color: c.type },
+    { tag: tags.variableName, color: c.variable },
+    { tag: tags.definition(tags.variableName), color: c.variable },
+    { tag: tags.function(tags.variableName), color: c.function },
+    { tag: tags.function(tags.propertyName), color: c.function },
+    { tag: tags.standard(tags.variableName), color: c.builtin },
+    { tag: tags.propertyName, color: c.property },
+    { tag: tags.operator, color: c.operator },
+    { tag: tags.compareOperator, color: c.operator },
+    { tag: tags.logicOperator, color: c.operator },
+    { tag: tags.arithmeticOperator, color: c.operator },
+    { tag: tags.punctuation, color: c.punctuation },
+    { tag: tags.paren, color: c.punctuation },
+    { tag: tags.brace, color: c.punctuation },
+    { tag: tags.bracket, color: c.punctuation },
+    { tag: tags.tagName, color: c.tag },
+    { tag: tags.attributeName, color: c.attribute },
+    { tag: tags.attributeValue, color: c.string },
+    { tag: tags.className, color: c.className },
+    { tag: tags.bool, color: c.keyword },
+    { tag: tags.null, color: c.keyword },
+    { tag: tags.meta, color: c.meta },
+    { tag: tags.invalid, color: c.invalid },
+    { tag: tags.heading, color: c.keyword, fontWeight: "bold" },
+    { tag: tags.heading1, color: c.keyword, fontWeight: "bold" },
+    { tag: tags.heading2, color: c.keyword, fontWeight: "bold" },
+    { tag: tags.heading3, color: c.keyword, fontWeight: "bold" },
+    { tag: tags.strong, color: c.foreground, fontWeight: "bold" },
+    { tag: tags.emphasis, color: c.foreground, fontStyle: "italic" },
+    { tag: tags.link, color: c.type, textDecoration: "underline" },
+    { tag: tags.url, color: c.type, textDecoration: "underline" },
+    { tag: tags.labelName, color: c.property },
+    { tag: tags.namespace, color: c.className },
+    { tag: tags.macroName, color: c.function },
+    { tag: tags.literal, color: c.string },
+    { tag: tags.special(tags.string), color: c.string },
+    { tag: tags.regexp, color: c.string },
+    { tag: tags.escape, color: c.string },
+    { tag: tags.processingInstruction, color: c.keyword },
+    { tag: tags.inserted, color: c.string },
+    { tag: tags.deleted, color: c.invalid },
+    { tag: tags.changed, color: c.property },
+    { tag: tags.self, color: c.keyword },
+    { tag: tags.derefOperator, color: c.operator },
+    { tag: tags.unit, color: c.type },
+    { tag: tags.angleBracket, color: c.punctuation },
+    { tag: tags.annotation, color: c.property },
+    { tag: tags.modifier, color: c.keyword },
+    { tag: tags.list, color: c.foreground },
+    { tag: tags.quote, color: c.string, fontStyle: "italic" },
+    { tag: tags.monospace, color: c.foreground },
+    { tag: tags.strikethrough, color: c.invalid, textDecoration: "line-through" },
+    { tag: tags.contentSeparator, color: c.operator },
+    { tag: tags.special(tags.name), color: c.builtin },
   ]);
 
   return [theme, syntaxHighlighting(highlightStyle)];
@@ -223,6 +219,7 @@ export function resolveEditorTheme(theme: EditorTheme, appAppearance: AppThemeAp
 export async function loadEditorTheme(
   theme: EditorTheme,
   appAppearance: AppThemeAppearance = "dark",
+  customColors?: CustomThemeColors,
 ): Promise<Extension> {
   const resolvedTheme = resolveEditorTheme(theme, appAppearance);
   switch (resolvedTheme) {
@@ -245,7 +242,7 @@ export async function loadEditorTheme(
     case "xcode":
       return (await import("@uiw/codemirror-theme-xcode")).xcodeLight;
     case "custom":
-      return createCustomTheme((await import("@codemirror/view")).EditorView);
+      return createCustomTheme((await import("@codemirror/view")).EditorView, customColors);
     default:
       return (await import("@codemirror/theme-one-dark")).oneDark;
   }

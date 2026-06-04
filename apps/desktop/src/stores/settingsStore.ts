@@ -191,11 +191,39 @@ export type DataGridRenderMode = (typeof DATA_GRID_RENDER_MODES)[number];
 const DISCONNECT_TAB_HANDLING_MODES = ["close-tabs", "keep-tabs-clear-results", "keep-tabs-keep-results"] as const;
 export type DisconnectTabHandlingMode = (typeof DISCONNECT_TAB_HANDLING_MODES)[number];
 
+// 自定义主题颜色配置
+export interface CustomThemeColors {
+  keyword: string;
+  field: string;
+  function: string;
+  string: string;
+  number: string;
+  comment: string;
+  table: string;
+  operator: string;
+  type: string;
+  builtin: string;
+}
+
+export const DEFAULT_CUSTOM_THEME_COLORS: CustomThemeColors = {
+  keyword: "#cba6f7",
+  field: "#f9e2af",
+  function: "#89dceb",
+  string: "#a6e3a1",
+  number: "#fab387",
+  comment: "#6c7086",
+  table: "#a6e3a1",
+  operator: "#89b4fa",
+  type: "#89b4fa",
+  builtin: "#f38ba8",
+};
+
 export interface EditorSettings {
   fontFamily: string;
   fontSize: number;
   uiScale: number;
   theme: EditorTheme;
+  customThemeColors: CustomThemeColors;
   executeMode: "all" | "current";
   wordWrap: boolean;
   compactTabTitle: boolean;
@@ -256,6 +284,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   fontSize: 13,
   uiScale: 1,
   theme: "app",
+  customThemeColors: { ...DEFAULT_CUSTOM_THEME_COLORS },
   executeMode: "all",
   wordWrap: false,
   compactTabTitle: false,
@@ -385,6 +414,10 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     fontSize: settings.fontSize ?? DEFAULT_EDITOR_SETTINGS.fontSize,
     uiScale: normalizeUiScale(settings.uiScale),
     theme: settings.theme && EDITOR_THEME_VALUES.has(settings.theme) ? settings.theme : DEFAULT_EDITOR_SETTINGS.theme,
+    customThemeColors: {
+      ...DEFAULT_CUSTOM_THEME_COLORS,
+      ...settings.customThemeColors,
+    },
     executeMode: settings.executeMode ?? DEFAULT_EDITOR_SETTINGS.executeMode,
     wordWrap: settings.wordWrap ?? DEFAULT_EDITOR_SETTINGS.wordWrap,
     compactTabTitle: settings.compactTabTitle ?? DEFAULT_EDITOR_SETTINGS.compactTabTitle,
@@ -541,6 +574,12 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.fontSize !== undefined) editorSettings.value.fontSize = partial.fontSize;
     if (partial.uiScale !== undefined) editorSettings.value.uiScale = normalizeUiScale(partial.uiScale);
     if (partial.theme !== undefined) editorSettings.value.theme = partial.theme;
+    if (partial.customThemeColors !== undefined) {
+      editorSettings.value.customThemeColors = {
+        ...editorSettings.value.customThemeColors,
+        ...partial.customThemeColors,
+      };
+    }
     if (partial.executeMode !== undefined) editorSettings.value.executeMode = partial.executeMode;
     if (partial.wordWrap !== undefined) editorSettings.value.wordWrap = partial.wordWrap;
     if (partial.compactTabTitle !== undefined) editorSettings.value.compactTabTitle = partial.compactTabTitle;
