@@ -1,8 +1,8 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorTheme } from "@/stores/settingsStore";
 import type { AppThemeAppearance } from "@/lib/appTheme";
-import { tags } from "@lezer/highlight";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 
 type CodeMirrorStyleSpec = Parameters<typeof import("@codemirror/view").EditorView.theme>[0];
 type LucideIconNode = Array<[string, Record<string, string>]>;
