@@ -224,7 +224,7 @@ function handleImport() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col" @click="expandedPalette = null">
+    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle>自定义主题配置</DialogTitle>
       </DialogHeader>
@@ -287,11 +287,11 @@ function handleImport() {
                 <div class="mb-2 text-sm text-muted-foreground">实时预览</div>
                 <div class="leading-relaxed text-lg">
                   <span v-for="(token, i) in previewCode" :key="i" :style="{ color: token.color }" class="inline">
-                    {{ token.text }}<sup v-if="token.num" class="text-sm opacity-60">{{ token.num }}</sup>
+                    {{ token.text }}<sup v-if="token.num" class="text-xl opacity-60">{{ token.num }}</sup>
                   </span>
                 </div>
-                <div class="mt-2 text-sm" :style="{ color: localColors.comment }">
-                  <sup class="text-sm">⑥</sup> -- 查询示例
+                <div class="mt-2 text-lg" :style="{ color: localColors.comment }">
+                  <sup class="text-xl">⑥</sup> -- 查询示例
                 </div>
               </div>
 
@@ -313,10 +313,10 @@ function handleImport() {
                       <button
                         type="button"
                         class="flex items-center gap-0.5 rounded border p-0.5 hover:bg-muted transition-colors"
-                        @click="togglePalette(item.key)"
+                        @click.stop="togglePalette(item.key)"
                       >
                         <div class="h-6 w-6 rounded-sm" :style="{ backgroundColor: localColors[item.key] }" />
-                        <ChevronDown class="h-3 w-3 text-muted-foreground" />
+                        <ChevronDown class="h-3 w-3 text-muted-foreground pointer-events-none" />
                       </button>
                       <!-- 调色板弹出层 -->
                       <div
@@ -357,11 +357,11 @@ function handleImport() {
               </div>
             </TabsContent>
 
-            <TabsContent value="json" class="space-y-4 flex-1 flex flex-col">
+            <TabsContent value="json" class="space-y-4 flex-1 flex flex-col min-h-[400px]">
               <textarea
                 v-model="jsonText"
                 @blur="handleJsonChange"
-                class="flex-1 w-full rounded-lg border bg-black/50 p-4 font-mono text-sm"
+                class="flex-1 w-full rounded-lg border bg-black/50 p-4 font-mono text-sm min-h-[360px]"
                 spellcheck="false"
               />
               <div class="flex gap-2">
