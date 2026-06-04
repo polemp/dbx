@@ -218,12 +218,24 @@ export const DEFAULT_CUSTOM_THEME_COLORS: CustomThemeColors = {
   builtin: "#f38ba8",
 };
 
+export interface CustomTheme {
+  id: string;
+  name: string;
+  colors: CustomThemeColors;
+}
+
+export const DEFAULT_CUSTOM_THEMES: CustomTheme[] = [
+  { id: "default", name: "默认", colors: { ...DEFAULT_CUSTOM_THEME_COLORS } },
+];
+
 export interface EditorSettings {
   fontFamily: string;
   fontSize: number;
   uiScale: number;
   theme: EditorTheme;
   customThemeColors: CustomThemeColors;
+  customThemes: CustomTheme[];
+  activeCustomThemeId: string;
   executeMode: "all" | "current";
   wordWrap: boolean;
   compactTabTitle: boolean;
@@ -285,6 +297,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   uiScale: 1,
   theme: "app",
   customThemeColors: { ...DEFAULT_CUSTOM_THEME_COLORS },
+  customThemes: [...DEFAULT_CUSTOM_THEMES],
+  activeCustomThemeId: "default",
   executeMode: "all",
   wordWrap: false,
   compactTabTitle: false,
@@ -418,6 +432,21 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
       ...DEFAULT_CUSTOM_THEME_COLORS,
       ...settings.customThemeColors,
     },
+    customThemes: Array.isArray(settings.customThemes)
+      ? settings.customThemes
+      : [
+          ...(settings.customThemeColors
+            ? [
+                {
+                  id: "migrated",
+                  name: "已迁移",
+                  colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
+                },
+              ]
+            : []),
+          ...DEFAULT_CUSTOM_THEMES,
+        ],
+    activeCustomThemeId: settings.activeCustomThemeId ?? "default",
     executeMode: settings.executeMode ?? DEFAULT_EDITOR_SETTINGS.executeMode,
     wordWrap: settings.wordWrap ?? DEFAULT_EDITOR_SETTINGS.wordWrap,
     compactTabTitle: settings.compactTabTitle ?? DEFAULT_EDITOR_SETTINGS.compactTabTitle,
@@ -579,6 +608,14 @@ export const useSettingsStore = defineStore("settings", () => {
         ...editorSettings.value.customThemeColors,
         ...partial.customThemeColors,
       };
+    }
+    if (partial.customThemes !== undefined) {
+      editorSettings.value.customThemes = Array.isArray(partial.customThemes)
+        ? partial.customThemes
+        : editorSettings.value.customThemes;
+    }
+    if (partial.activeCustomThemeId !== undefined) {
+      editorSettings.value.activeCustomThemeId = partial.activeCustomThemeId;
     }
     if (partial.executeMode !== undefined) editorSettings.value.executeMode = partial.executeMode;
     if (partial.wordWrap !== undefined) editorSettings.value.wordWrap = partial.wordWrap;

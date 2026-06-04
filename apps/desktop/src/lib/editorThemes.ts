@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { EditorTheme, CustomThemeColors } from "@/stores/settingsStore";
+import type { EditorTheme, CustomThemeColors, CustomTheme } from "@/stores/settingsStore";
 import type { AppThemeAppearance } from "@/lib/appTheme";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";

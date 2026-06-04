@@ -1418,7 +1418,10 @@ onMounted(async () => {
     builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
   });
 
-  const theme = await loadEditorTheme(ss.theme, editorThemeAppearance(), ss.customThemeColors);
+  const activeCustomTheme =
+    ss.theme === "custom" ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) : undefined;
+  const themeColors = activeCustomTheme?.colors ?? ss.customThemeColors;
+  const theme = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
 
   const activeLineHighlighter = ViewPlugin.fromClass(
     class {
@@ -1752,7 +1755,10 @@ watch(
       liveFontSize.value = ss.fontSize;
     }
     syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
-    const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), ss.customThemeColors);
+    const activeCustomTheme =
+      ss.theme === "custom" ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) : undefined;
+    const themeColors = activeCustomTheme?.colors ?? ss.customThemeColors;
+    const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [
         codeMirrorTheme.reconfigure(themeExt),

@@ -45,6 +45,7 @@ import {
   type DesktopIconTheme,
   type DisconnectTabHandlingMode,
   type CustomThemeColors,
+  type CustomTheme,
 } from "@/stores/settingsStore";
 import { loadEditorTheme, editorFontTheme } from "@/lib/editorThemes";
 import ThemeCustomizerDialog from "./ThemeCustomizerDialog.vue";
@@ -105,6 +106,8 @@ const editFontFamily = ref(settingsStore.editorSettings.fontFamily);
 const editFontSize = ref(settingsStore.editorSettings.fontSize);
 const editUiScale = ref(settingsStore.editorSettings.uiScale);
 const editTheme = ref(settingsStore.editorSettings.theme);
+const editCustomThemes = ref<CustomTheme[]>([...settingsStore.editorSettings.customThemes]);
+const editActiveCustomThemeId = ref(settingsStore.editorSettings.activeCustomThemeId);
 const showThemeCustomizer = ref(false);
 const editExecuteMode = ref(settingsStore.editorSettings.executeMode);
 const editWordWrap = ref(settingsStore.editorSettings.wordWrap);
@@ -258,6 +261,8 @@ watch(
       editFontSize.value = settingsStore.editorSettings.fontSize;
       editUiScale.value = settingsStore.editorSettings.uiScale;
       editTheme.value = settingsStore.editorSettings.theme;
+      editCustomThemes.value = [...settingsStore.editorSettings.customThemes];
+      editActiveCustomThemeId.value = settingsStore.editorSettings.activeCustomThemeId;
       editExecuteMode.value = settingsStore.editorSettings.executeMode;
       editWordWrap.value = settingsStore.editorSettings.wordWrap;
       editAppLayout.value = settingsStore.editorSettings.appLayout;
@@ -301,6 +306,8 @@ function hasChanges(): boolean {
     editFontSize.value !== settingsStore.editorSettings.fontSize ||
     editUiScale.value !== settingsStore.editorSettings.uiScale ||
     editTheme.value !== settingsStore.editorSettings.theme ||
+    JSON.stringify(editCustomThemes.value) !== JSON.stringify(settingsStore.editorSettings.customThemes) ||
+    editActiveCustomThemeId.value !== settingsStore.editorSettings.activeCustomThemeId ||
     editExecuteMode.value !== settingsStore.editorSettings.executeMode ||
     editWordWrap.value !== settingsStore.editorSettings.wordWrap ||
     editAppLayout.value !== settingsStore.editorSettings.appLayout ||
@@ -333,6 +340,8 @@ async function persistSettings() {
     fontSize: editFontSize.value,
     uiScale: editUiScale.value,
     theme: editTheme.value,
+    customThemes: editCustomThemes.value,
+    activeCustomThemeId: editActiveCustomThemeId.value,
     executeMode: editExecuteMode.value,
     wordWrap: editWordWrap.value,
     appLayout: editAppLayout.value,
@@ -374,6 +383,8 @@ function resetDefaults() {
   editFontSize.value = DEFAULT_EDITOR_SETTINGS.fontSize;
   editUiScale.value = DEFAULT_EDITOR_SETTINGS.uiScale;
   editTheme.value = DEFAULT_EDITOR_SETTINGS.theme;
+  editCustomThemes.value = [...DEFAULT_EDITOR_SETTINGS.customThemes];
+  editActiveCustomThemeId.value = DEFAULT_EDITOR_SETTINGS.activeCustomThemeId;
   editExecuteMode.value = DEFAULT_EDITOR_SETTINGS.executeMode;
   editWordWrap.value = DEFAULT_EDITOR_SETTINGS.wordWrap;
   editAppLayout.value = DEFAULT_EDITOR_SETTINGS.appLayout;
@@ -407,9 +418,13 @@ function onThemeChange(v: any) {
   if (typeof v === "string") editTheme.value = v as typeof DEFAULT_EDITOR_SETTINGS.theme;
 }
 
-function handleThemeSave(colors: CustomThemeColors) {
-  settingsStore.updateEditorSettings({ customThemeColors: colors });
+function handleThemeSave(updatedThemes: CustomTheme[]) {
+  editCustomThemes.value = updatedThemes;
   showThemeCustomizer.value = false;
+}
+
+function handleActiveThemeChange(v: any) {
+  if (typeof v === "string") editActiveCustomThemeId.value = v;
 }
 
 function onDisconnectTabHandlingModeChange(v: any) {
@@ -1222,16 +1237,22 @@ watch(
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button
-                    v-if="editTheme === 'custom'"
-                    variant="outline"
-                    size="sm"
-                    class="mt-2 w-full"
-                    @click="showThemeCustomizer = true"
-                  >
-                    <Settings class="mr-2 h-4 w-4" />
-                    自定义主题配置
-                  </Button>
+                  <template v-if="editTheme === 'custom'">
+                    <Select :model-value="editActiveCustomThemeId" @update:model-value="handleActiveThemeChange">
+                      <SelectTrigger class="mt-2">
+                        <SelectValue placeholder="选择自定义主题" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="theme in editCustomThemes" :key="theme.id" :value="theme.id">
+                          {{ theme.name }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" class="mt-2 h-9 w-full" @click="showThemeCustomizer = true">
+                      <Settings class="mr-2 h-4 w-4" />
+                      自定义主题配置
+                    </Button>
+                  </template>
                 </div>
               </div>
 
@@ -2554,7 +2575,8 @@ watch(
     <!-- Theme Customizer Dialog -->
     <ThemeCustomizerDialog
       v-model:open="showThemeCustomizer"
-      :colors="settingsStore.editorSettings.customThemeColors"
+      :themes="editCustomThemes"
+      :active-theme-id="editActiveCustomThemeId"
       @save="handleThemeSave"
     />
 
