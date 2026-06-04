@@ -1402,9 +1402,20 @@ onMounted(async () => {
   const baseDialect = props.dialect === "postgres" ? PostgreSQL : props.dialect === "sqlserver" ? MSSQL : MySQL;
   const extraKeywords =
     "PIVOT UNPIVOT EXCLUDE REPLACE QUALIFY ASOF POSITIONAL ANTI SEMI SAMPLE TABLESAMPLE STRUCT MAP LIST ARRAY LAMBDA UNNEST LATERAL FILTER RECURSIVE SUMMARIZE PRAGMA READ_CSV READ_PARQUET READ_JSON DESCRIBE SHOW COPY EXPORT IMPORT";
+
+  // PL/pgSQL 扩展：为 PostgreSQL 函数/存储过程体添加过程语言关键字和内置变量
+  const isPostgres = props.dialect === "postgres";
+  const plpgsqlKeywords = isPostgres ? "PERFORM" : "";
+  const plpgsqlTypes = isPostgres ? " RECORD" : "";
+  const plpgsqlBuiltin = isPostgres
+    ? "SQLERRM TG_NAME TG_WHEN TG_LEVEL TG_OP TG_RELID TG_RELNAME TG_TABLE_NAME TG_TABLE_SCHEMA TG_NARGS TG_ARGV"
+    : "";
+
   const dialect = SQLDialect.define({
     ...baseDialect.spec,
-    keywords: (baseDialect.spec.keywords || "") + " " + extraKeywords,
+    keywords: [baseDialect.spec.keywords || "", extraKeywords, plpgsqlKeywords].filter(Boolean).join(" "),
+    types: [baseDialect.spec.types || "", plpgsqlTypes].filter(Boolean).join(" ") || undefined,
+    builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
   });
 
   const theme = await loadEditorTheme(ss.theme, editorThemeAppearance());
