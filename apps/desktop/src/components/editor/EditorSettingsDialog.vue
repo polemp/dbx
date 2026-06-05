@@ -1287,7 +1287,7 @@ watch(
                     @click="showThemeCustomizer = true"
                   >
                     <Settings class="mr-2 h-4 w-4" />
-                    自定义主题配置
+                    {{ t("settings.customThemeConfigure") }}
                   </Button>
                 </div>
               </div>

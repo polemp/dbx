@@ -8,6 +8,7 @@ import type { CustomTheme, CustomThemeColors } from "@/stores/settingsStore";
 import { DEFAULT_CUSTOM_THEME_COLORS } from "@/stores/settingsStore";
 import { Plus, Trash2, Copy, Pencil, ChevronDown, Palette } from "@lucide/vue";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "vue-i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Props {
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 }>();
 
 const { toast } = useToast();
+const { t } = useI18n();
 
 const localThemes = ref<CustomTheme[]>([]);
 const activeEditId = ref("");
@@ -67,18 +69,18 @@ watch(
 );
 
 const colorItems = [
-  { key: "keyword" as const, label: "关键字", example: "SELECT, WHERE, IF", num: "①" },
-  { key: "field" as const, label: "字段/变量", example: "id, name, _var", num: "②" },
-  { key: "function" as const, label: "函数", example: "count, upper", num: "③" },
-  { key: "string" as const, label: "字符串", example: "'hello', 'world'", num: "④" },
-  { key: "number" as const, label: "数字", example: "100, 3.14", num: "⑤" },
-  { key: "comment" as const, label: "注释", example: "--, /* */", num: "⑥" },
-  { key: "table" as const, label: "表名", example: "users, orders", num: "⑦" },
-  { key: "operator" as const, label: "运算符", example: "=, >, <>", num: "⑧" },
-  { key: "type" as const, label: "类型", example: "INTEGER, TEXT", num: "⑨" },
-  { key: "builtin" as const, label: "内置变量", example: "FOUND, SQLERRM", num: "⑩" },
-  { key: "background" as const, label: "背景色", example: "编辑器背景", num: "⑪" },
-  { key: "foreground" as const, label: "前景色", example: "默认文字颜色", num: "⑫" },
+  { key: "keyword" as const, label: t("settings.customThemeKeyword"), example: "SELECT, WHERE, IF", num: "①" },
+  { key: "field" as const, label: t("settings.customThemeField"), example: "id, name, _var", num: "②" },
+  { key: "function" as const, label: t("settings.customThemeFunction"), example: "count, upper", num: "③" },
+  { key: "string" as const, label: t("settings.customThemeString"), example: "'hello', 'world'", num: "④" },
+  { key: "number" as const, label: t("settings.customThemeNumber"), example: "100, 3.14", num: "⑤" },
+  { key: "comment" as const, label: t("settings.customThemeComment"), example: "--, /* */", num: "⑥" },
+  { key: "table" as const, label: t("settings.customThemeTable"), example: "users, orders", num: "⑦" },
+  { key: "operator" as const, label: t("settings.customThemeOperator"), example: "=, >, <>", num: "⑧" },
+  { key: "type" as const, label: t("settings.customThemeType"), example: "INTEGER, TEXT", num: "⑨" },
+  { key: "builtin" as const, label: t("settings.customThemeBuiltin"), example: "FOUND, SQLERRM", num: "⑩" },
+  { key: "background" as const, label: t("settings.customThemeBackground"), example: "Editor background", num: "⑪" },
+  { key: "foreground" as const, label: t("settings.customThemeForeground"), example: "Default text color", num: "⑫" },
 ];
 
 // 预设配色模板（包含所有内置主题配色）
@@ -285,7 +287,7 @@ function applyPreset() {
   const theme = localThemes.value.find((t) => t.id === activeEditId.value);
   if (theme) {
     theme.colors = { ...DEFAULT_CUSTOM_THEME_COLORS, ...preset.colors };
-    toast(`已应用「${preset.name}」配色方案`, 2000);
+    toast(t("settings.customThemeApplied", { name: preset.name }), 2000);
   }
 }
 
@@ -360,7 +362,7 @@ function handleSave() {
 
 function handleAddTheme() {
   const id = `custom-${Date.now()}`;
-  const name = `主题 ${localThemes.value.length + 1}`;
+  const name = `${t("settings.customThemeDefaultName")} ${localThemes.value.length + 1}`;
   localThemes.value.push({
     id,
     name,
@@ -371,7 +373,7 @@ function handleAddTheme() {
 
 function handleDeleteTheme(id: string) {
   if (localThemes.value.length <= 1) {
-    toast("至少保留一个主题", 3000);
+    toast(t("settings.customThemeKeepOne"), 3000);
     return;
   }
   localThemes.value = localThemes.value.filter((t) => t.id !== id);
@@ -384,7 +386,7 @@ function handleDuplicateTheme(theme: CustomTheme) {
   const id = `custom-${Date.now()}`;
   localThemes.value.push({
     id,
-    name: `${theme.name} 副本`,
+    name: `${theme.name}${t("settings.customThemeCopySuffix")}`,
     colors: { ...theme.colors },
   });
   activeEditId.value = id;
@@ -430,7 +432,7 @@ function handleImport() {
       theme.colors = { ...DEFAULT_CUSTOM_THEME_COLORS, ...parsed };
     }
   } catch (e) {
-    toast("JSON格式错误，请检查", 3000);
+    toast(t("settings.customThemeJsonError"), 3000);
   }
 }
 </script>
@@ -439,13 +441,13 @@ function handleImport() {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
-        <DialogTitle>自定义主题配置</DialogTitle>
+        <DialogTitle>{{ t("settings.customThemeTitle") }}</DialogTitle>
       </DialogHeader>
 
       <div class="flex-1 min-h-0 flex gap-4">
         <!-- 主题列表侧边栏 -->
         <div class="w-48 shrink-0 flex flex-col gap-2">
-          <div class="text-sm font-medium px-1">我的主题</div>
+          <div class="text-sm font-medium px-1">{{ t("settings.customThemeMyThemes") }}</div>
           <div class="flex-1 overflow-y-auto space-y-1 pr-1">
             <div
               v-for="theme in localThemes"
@@ -482,7 +484,7 @@ function handleImport() {
           </div>
           <Button variant="outline" size="sm" class="w-full gap-1" @click="handleAddTheme">
             <Plus class="h-4 w-4" />
-            新建主题
+            {{ t("settings.customThemeNewTheme") }}
           </Button>
         </div>
 
@@ -490,31 +492,31 @@ function handleImport() {
         <div class="flex-1 min-w-0 overflow-hidden flex flex-col">
           <Tabs defaultValue="visual" class="w-full flex-1 flex flex-col">
             <TabsList class="grid w-full grid-cols-2">
-              <TabsTrigger value="visual">可视化编辑</TabsTrigger>
-              <TabsTrigger value="json">JSON配置</TabsTrigger>
+              <TabsTrigger value="visual">{{ t("settings.customThemeVisualEdit") }}</TabsTrigger>
+              <TabsTrigger value="json">{{ t("settings.customThemeJsonConfig") }}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="visual" class="space-y-4 flex-1 overflow-y-auto pr-1">
               <!-- 预览区域 -->
               <div class="rounded-lg border bg-black/50 p-5 font-mono text-base">
-                <div class="mb-2 text-sm text-muted-foreground">实时预览</div>
+                <div class="mb-2 text-sm text-muted-foreground">{{ t("settings.customThemeLivePreview") }}</div>
                 <div class="leading-relaxed text-lg">
                   <span v-for="(token, i) in previewCode" :key="i" :style="{ color: token.color }" class="inline">
                     {{ token.text }}<sup v-if="token.num" class="text-xl opacity-60">{{ token.num }}</sup>
                   </span>
                 </div>
                 <div class="mt-2 text-lg" :style="{ color: localColors.comment }">
-                  <sup class="text-xl">⑥</sup> -- 查询示例
+                  <sup class="text-xl">⑥</sup> -- {{ t("settings.customThemePreviewExample") }}
                 </div>
               </div>
 
               <!-- 预设配色方案 -->
               <div class="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
                 <Palette class="h-4 w-4 text-muted-foreground shrink-0" />
-                <span class="text-sm text-muted-foreground shrink-0">预设配色:</span>
+                <span class="text-sm text-muted-foreground shrink-0">{{ t("settings.customThemePreset") }}:</span>
                 <Select v-model="selectedPreset" class="flex-1">
                   <SelectTrigger class="h-8 text-sm">
-                    <SelectValue placeholder="选择预设配色方案" />
+                    <SelectValue :placeholder="t('settings.customThemeSelectPreset')" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem v-for="preset in presetThemes" :key="preset.name" :value="preset.name">
@@ -524,7 +526,7 @@ function handleImport() {
                 </Select>
                 <Button variant="outline" size="sm" class="h-8 shrink-0" @click="applyPreset">
                   <Copy class="mr-1 h-3 w-3" />
-                  应用
+                  {{ t("settings.customThemeApply") }}
                 </Button>
               </div>
 
@@ -598,8 +600,12 @@ function handleImport() {
                 spellcheck="false"
               />
               <div class="flex gap-2">
-                <Button variant="outline" size="sm" @click="handleImport">粘贴导入</Button>
-                <Button variant="outline" size="sm" @click="handleExport">导出JSON</Button>
+                <Button variant="outline" size="sm" @click="handleImport">{{
+                  t("settings.customThemePasteImport")
+                }}</Button>
+                <Button variant="outline" size="sm" @click="handleExport">{{
+                  t("settings.customThemeExportJson")
+                }}</Button>
               </div>
             </TabsContent>
           </Tabs>
@@ -607,8 +613,8 @@ function handleImport() {
       </div>
 
       <DialogFooter class="gap-2">
-        <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-        <Button @click="handleSave">保存并应用</Button>
+        <Button variant="outline" @click="emit('update:open', false)">{{ t("settings.cancel") }}</Button>
+        <Button @click="handleSave">{{ t("settings.customThemeSaveAndApply") }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
