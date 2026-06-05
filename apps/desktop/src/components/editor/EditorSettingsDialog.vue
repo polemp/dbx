@@ -1217,9 +1217,9 @@ watch(
         <div class="min-w-0 flex-1 overflow-hidden px-1 flex flex-col">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pr-2">
             <section v-if="activeSettingsTab === 'editor'" class="flex flex-col gap-5 py-2">
-              <div class="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_200px_auto]">
+              <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(160px,200px)_auto]">
                 <!-- Font Family -->
-                <div class="space-y-2">
+                <div class="space-y-2 min-w-0">
                   <Label>{{ t("settings.fontFamily") }}</Label>
                   <SearchableSelect
                     :model-value="editFontFamily"
@@ -1254,7 +1254,7 @@ watch(
                 </div>
 
                 <!-- Theme -->
-                <div class="space-y-2">
+                <div class="space-y-2 min-w-0">
                   <Label>{{ t("settings.theme") }}</Label>
                   <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
                     <SelectTrigger class="w-full">
