@@ -1435,7 +1435,7 @@ onMounted(async () => {
     doubleDollarQuotedStrings: false,
   });
 
-  const initialSettings = getEditorSettingsFromStorage();
+  const initialSettings = settingsStore.editorSettings;
   const theme = await loadEditorTheme(initialSettings.theme, editorThemeAppearance(), getCurrentCustomThemeColors());
 
   const activeLineHighlighter = ViewPlugin.fromClass(
@@ -1709,7 +1709,7 @@ onMounted(async () => {
   // Ensure theme is applied with the latest settings after mount
   void nextTick(async () => {
     if (!view.value || !codeMirrorTheme) return;
-    const settings = getEditorSettingsFromStorage();
+    const settings = settingsStore.editorSettings;
     const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
     const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
@@ -1780,28 +1780,9 @@ watch(
   },
 );
 
-// Helper functions for editor settings
-function getEditorSettingsFromStorage(): EditorSettings {
-  try {
-    const raw = localStorage.getItem("dbx-editor-settings");
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<EditorSettings>;
-      return {
-        ...settingsStore.editorSettings,
-        ...parsed,
-        customThemeColors: parsed.customThemeColors ?? settingsStore.editorSettings.customThemeColors,
-        customThemes: parsed.customThemes ?? settingsStore.editorSettings.customThemes,
-        activeCustomThemeId: parsed.activeCustomThemeId ?? settingsStore.editorSettings.activeCustomThemeId,
-      } as EditorSettings;
-    }
-  } catch {
-    /* ignore */
-  }
-  return settingsStore.editorSettings;
-}
-
+// Derive current custom theme colors from settingsStore
 function getCurrentCustomThemeColors() {
-  const settings = getEditorSettingsFromStorage();
+  const settings = settingsStore.editorSettings;
   if (settings.theme !== "custom") return settings.customThemeColors;
   const activeTheme =
     settings.customThemes?.find((t: { id: string }) => t.id === settings.activeCustomThemeId) ||
@@ -1820,9 +1801,8 @@ watch(
       liveFontSize.value = ss.fontSize;
     }
     syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
-    const settings = getEditorSettingsFromStorage();
-    const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
-    const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
+    const themeColors = getCurrentCustomThemeColors();
+    const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [
         codeMirrorTheme.reconfigure(themeExt),

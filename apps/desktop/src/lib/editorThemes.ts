@@ -110,7 +110,7 @@ function createCustomTheme(
         outline: "none",
       },
     },
-    { dark: true },
+    { dark: isDark },
   );
 
   const highlightStyle = HighlightStyle.define([
