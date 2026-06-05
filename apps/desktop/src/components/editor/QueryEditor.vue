@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, shallowRef, computed } from "vue";
+import {
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  onActivated,
+  onDeactivated,
+  watch,
+  shallowRef,
+  computed,
+  nextTick,
+} from "vue";
 import { Play, Copy, TextSelect } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import type { CompletionContext } from "@codemirror/autocomplete";
@@ -1397,8 +1407,6 @@ onMounted(async () => {
       ],
     });
 
-  const ss = settingsStore.editorSettings;
-
   const baseDialect = props.dialect === "postgres" ? PostgreSQL : props.dialect === "sqlserver" ? MSSQL : MySQL;
   const extraKeywords =
     "PIVOT UNPIVOT EXCLUDE REPLACE QUALIFY ASOF POSITIONAL ANTI SEMI SAMPLE TABLESAMPLE STRUCT MAP LIST ARRAY LAMBDA UNNEST LATERAL FILTER RECURSIVE SUMMARIZE PRAGMA READ_CSV READ_PARQUET READ_JSON DESCRIBE SHOW COPY EXPORT IMPORT";
@@ -1418,10 +1426,19 @@ onMounted(async () => {
     builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
   });
 
-  const activeCustomTheme =
-    ss.theme === "custom" ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) : undefined;
-  const themeColors = activeCustomTheme?.colors ?? ss.customThemeColors;
-  const theme = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
+  function getCurrentCustomThemeColors() {
+    const settings = settingsStore.editorSettings;
+    if (settings.theme !== "custom") return settings.customThemeColors;
+    const activeCustomTheme =
+      settings.customThemes.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes[0];
+    return activeCustomTheme?.colors ?? settings.customThemeColors;
+  }
+
+  const theme = await loadEditorTheme(
+    settingsStore.editorSettings.theme,
+    editorThemeAppearance(),
+    getCurrentCustomThemeColors(),
+  );
 
   const activeLineHighlighter = ViewPlugin.fromClass(
     class {
@@ -1449,6 +1466,8 @@ onMounted(async () => {
     },
     { decorations: (v) => v.decorations },
   );
+
+  const ss = settingsStore.editorSettings;
 
   const state = EditorState.create({
     doc: props.modelValue,
@@ -1689,6 +1708,21 @@ onMounted(async () => {
   cachedTables = [];
   cachedCompletionObjects = [];
   scheduleSemanticDiagnostics();
+
+  // Ensure theme is applied with the latest settings after mount
+  void nextTick(async () => {
+    if (!view.value || !codeMirrorTheme) return;
+    const settings = settingsStore.editorSettings;
+    const activeCustomTheme =
+      settings.theme === "custom"
+        ? settings.customThemes.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes[0]
+        : undefined;
+    const themeColors = activeCustomTheme?.colors ?? settings.customThemeColors;
+    const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
+    view.value.dispatch({
+      effects: [codeMirrorTheme.reconfigure(themeExt)],
+    });
+  });
 });
 
 watch(
@@ -1756,7 +1790,9 @@ watch(
     }
     syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
     const activeCustomTheme =
-      ss.theme === "custom" ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) : undefined;
+      ss.theme === "custom"
+        ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) || ss.customThemes[0]
+        : undefined;
     const themeColors = activeCustomTheme?.colors ?? ss.customThemeColors;
     const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
