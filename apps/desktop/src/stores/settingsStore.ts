@@ -432,20 +432,21 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
       ...DEFAULT_CUSTOM_THEME_COLORS,
       ...settings.customThemeColors,
     },
-    customThemes: Array.isArray(settings.customThemes)
-      ? settings.customThemes
-      : [
-          ...(settings.customThemeColors
-            ? [
-                {
-                  id: "migrated",
-                  name: "已迁移",
-                  colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
-                },
-              ]
-            : []),
-          ...DEFAULT_CUSTOM_THEMES,
-        ],
+    customThemes:
+      Array.isArray(settings.customThemes) && settings.customThemes.length > 0
+        ? settings.customThemes
+        : [
+            ...(settings.customThemeColors
+              ? [
+                  {
+                    id: "migrated",
+                    name: "已迁移",
+                    colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
+                  },
+                ]
+              : []),
+            ...DEFAULT_CUSTOM_THEMES,
+          ],
     activeCustomThemeId: settings.activeCustomThemeId ?? "default",
     executeMode: settings.executeMode ?? DEFAULT_EDITOR_SETTINGS.executeMode,
     wordWrap: settings.wordWrap ?? DEFAULT_EDITOR_SETTINGS.wordWrap,

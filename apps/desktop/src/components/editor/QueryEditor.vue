@@ -1429,9 +1429,8 @@ onMounted(async () => {
   function getCurrentCustomThemeColors() {
     const settings = settingsStore.editorSettings;
     if (settings.theme !== "custom") return settings.customThemeColors;
-    const activeCustomTheme =
-      settings.customThemes.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes[0];
-    return activeCustomTheme?.colors ?? settings.customThemeColors;
+    // 优先使用已同步的 customThemeColors，避免 customThemes 查找问题
+    return settings.customThemeColors;
   }
 
   const theme = await loadEditorTheme(
@@ -1713,11 +1712,7 @@ onMounted(async () => {
   void nextTick(async () => {
     if (!view.value || !codeMirrorTheme) return;
     const settings = settingsStore.editorSettings;
-    const activeCustomTheme =
-      settings.theme === "custom"
-        ? settings.customThemes.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes[0]
-        : undefined;
-    const themeColors = activeCustomTheme?.colors ?? settings.customThemeColors;
+    const themeColors = settings.theme === "custom" ? settings.customThemeColors : settings.customThemeColors;
     const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [codeMirrorTheme.reconfigure(themeExt)],
@@ -1789,11 +1784,7 @@ watch(
       liveFontSize.value = ss.fontSize;
     }
     syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
-    const activeCustomTheme =
-      ss.theme === "custom"
-        ? ss.customThemes.find((t) => t.id === ss.activeCustomThemeId) || ss.customThemes[0]
-        : undefined;
-    const themeColors = activeCustomTheme?.colors ?? ss.customThemeColors;
+    const themeColors = ss.theme === "custom" ? ss.customThemeColors : ss.customThemeColors;
     const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [
