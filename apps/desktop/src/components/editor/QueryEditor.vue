@@ -1424,6 +1424,7 @@ onMounted(async () => {
     keywords: [baseDialect.spec.keywords || "", extraKeywords, plpgsqlKeywords].filter(Boolean).join(" "),
     types: [baseDialect.spec.types || "", plpgsqlTypes].filter(Boolean).join(" ") || undefined,
     builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
+    doubleDollarQuotedStrings: false,
   });
 
   function getEditorSettingsFromStorage(): EditorSettings {
