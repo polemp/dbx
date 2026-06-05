@@ -617,6 +617,15 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.activeCustomThemeId !== undefined) {
       editorSettings.value.activeCustomThemeId = partial.activeCustomThemeId;
     }
+    // 同步 customThemeColors 为当前激活主题的颜色（兼容回退逻辑）
+    if (partial.customThemes !== undefined || partial.activeCustomThemeId !== undefined) {
+      const themes = editorSettings.value.customThemes;
+      const activeId = editorSettings.value.activeCustomThemeId;
+      const activeTheme = themes.find((t) => t.id === activeId) || themes[0];
+      if (activeTheme) {
+        editorSettings.value.customThemeColors = { ...activeTheme.colors };
+      }
+    }
     if (partial.executeMode !== undefined) editorSettings.value.executeMode = partial.executeMode;
     if (partial.wordWrap !== undefined) editorSettings.value.wordWrap = partial.wordWrap;
     if (partial.compactTabTitle !== undefined) editorSettings.value.compactTabTitle = partial.compactTabTitle;
