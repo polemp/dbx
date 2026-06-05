@@ -22,8 +22,14 @@ import * as api from "@/lib/api";
 import { isTauriRuntime } from "@/lib/tauriRuntime";
 import { isSchemaAware, usesTreeSchemaMode } from "@/lib/databaseCapabilities";
 import {
+  connectionObjectTreeNodeSchema,
+  connectionObjectTreeQuerySchema,
+  connectionUsesDatabaseObjectTreeMode,
+} from "@/lib/jdbcDialect";
+import {
   buildDatabaseTreeNodes,
   buildDuckDbConnectionTreeNodes,
+  sortSidebarNames,
   shouldIncludeDefaultDatabaseNode,
 } from "@/lib/databaseTree";
 import { buildSqlServerDatabaseTreeNodes, SQLSERVER_DEFAULT_SCHEMA } from "@/lib/sqlServerTree";
@@ -49,6 +55,7 @@ import {
   treeNodeSchemaCachePrefix,
 } from "@/lib/treeNodeContext";
 import { decodeSchemaTreeCache, encodeSchemaTreeCache } from "@/lib/schemaTreeCache";
+import { sortSidebarTreeChildrenForParent } from "@/lib/sidebarNodeOrdering";
 import { prunePinnedTreeNodeIdsForConnection } from "@/lib/pinnedTreeNodeIds";
 import { useSavedSqlStore } from "@/stores/savedSqlStore";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -236,6 +243,7 @@ export const useConnectionStore = defineStore("connection", () => {
       redshift: "Redshift",
       dameng: "DM (Dameng)",
       gaussdb: "GaussDB",
+      kwdb: "KWDB",
       kingbase: "KingBase",
       highgo: "瀚高 HighGo",
       yashandb: "崖山 YashanDB",
@@ -259,6 +267,8 @@ export const useConnectionStore = defineStore("connection", () => {
     let dbType = config.db_type;
     if ((profile === "gaussdb" || profile === "opengauss") && dbType === "postgres") {
       dbType = "gaussdb" as ConnectionConfig["db_type"];
+    } else if (profile === "kwdb" && dbType === "postgres") {
+      dbType = "kwdb" as ConnectionConfig["db_type"];
     } else if (profile === "redshift" && dbType === "postgres") {
       dbType = "redshift" as ConnectionConfig["db_type"];
     } else if (profile === "kingbase" && dbType === "postgres") {
@@ -446,7 +456,11 @@ export const useConnectionStore = defineStore("connection", () => {
     const payload = await api.loadSchemaCache<unknown>(cacheKey).catch(() => null);
     const decoded = decodeSchemaTreeCache<TreeNode[]>(payload);
     if (!decoded) return { hit: false, isStale: false };
-    const normalizedChildren = normalizeCataloglessDatabaseNodes(expandCachedObjectBrowserNodes(decoded.children));
+    const normalizedChildren = sortSidebarTreeChildrenForParent(
+      node,
+      normalizeCataloglessDatabaseNodes(expandCachedObjectBrowserNodes(decoded.children)),
+      node.connectionId ? getConfig(node.connectionId)?.db_type : undefined,
+    );
     setChildren(
       node,
       node.type === "connection" && node.connectionId
@@ -825,7 +839,7 @@ export const useConnectionStore = defineStore("connection", () => {
         }
         const schemas = await api.listSchemas(connectionId, effectiveDb);
         const visibleSchemas = filterDatabaseNamesForConnection(schemas, config);
-        const schemaNodes: TreeNode[] = visibleSchemas.map((s) => ({
+        const schemaNodes: TreeNode[] = sortSidebarNames(visibleSchemas).map((s) => ({
           id: `${connectionId}:${s}:${s}`,
           label: s,
           type: "schema" as const,
@@ -945,7 +959,7 @@ export const useConnectionStore = defineStore("connection", () => {
         node,
         withSavedSqlRoot(
           connectionId,
-          visibleDbs.map((db) => ({
+          sortSidebarNames(visibleDbs).map((db) => ({
             id: `${connectionId}:${db}`,
             label: db,
             type: "mongo-db" as const,
@@ -976,7 +990,7 @@ export const useConnectionStore = defineStore("connection", () => {
       const collections = await api.mongoListCollections(connectionId, database);
       setChildren(
         node,
-        collections.map((col) => ({
+        sortSidebarNames(collections).map((col) => ({
           id: `${nodeId}:${col}`,
           label: col,
           type: "mongo-collection" as const,
@@ -1011,7 +1025,7 @@ export const useConnectionStore = defineStore("connection", () => {
         }
       }
 
-      const schemas = await api.listSchemas(connectionId, database);
+      const schemas = sortSidebarNames(await api.listSchemas(connectionId, database));
       const children = schemas.map((s) => ({
         id: `${connectionId}:${database}:${s}`,
         label: s,
@@ -1085,9 +1099,9 @@ export const useConnectionStore = defineStore("connection", () => {
         }
       }
 
-      const querySchema = schema || database;
       const config = getConfig(connectionId);
-      const effectiveSchema = schema || (config?.db_type && isSchemaAware(config.db_type) ? database : undefined);
+      const querySchema = connectionObjectTreeQuerySchema(config, database, schema);
+      const effectiveSchema = connectionObjectTreeNodeSchema(config, database, schema);
       const simpleObjectDisplay = useSettingsStore().editorSettings.sidebarObjectDisplay === "simple";
       let children: TreeNode[];
       if (simpleObjectDisplay) {
@@ -1202,7 +1216,7 @@ export const useConnectionStore = defineStore("connection", () => {
 
     node.isLoading = true;
     try {
-      const querySchema = schema || database;
+      const querySchema = metadataQuerySchema(connectionId, database, schema);
       const columns = await api.getColumns(connectionId, database, querySchema, table);
       setChildren(
         node,
@@ -1237,7 +1251,7 @@ export const useConnectionStore = defineStore("connection", () => {
 
     node.isLoading = true;
     try {
-      const querySchema = schema || database;
+      const querySchema = metadataQuerySchema(connectionId, database, schema);
       const indexes = await api.listIndexes(connectionId, database, querySchema, table);
       setChildren(
         node,
@@ -1278,7 +1292,7 @@ export const useConnectionStore = defineStore("connection", () => {
 
     node.isLoading = true;
     try {
-      const querySchema = schema || database;
+      const querySchema = metadataQuerySchema(connectionId, database, schema);
       const fkeys = await api.listForeignKeys(connectionId, database, querySchema, table);
       setChildren(
         node,
@@ -1313,7 +1327,7 @@ export const useConnectionStore = defineStore("connection", () => {
 
     node.isLoading = true;
     try {
-      const querySchema = schema || database;
+      const querySchema = metadataQuerySchema(connectionId, database, schema);
       const triggers = await api.listTriggers(connectionId, database, querySchema, table);
       setChildren(
         node,
@@ -1361,7 +1375,7 @@ export const useConnectionStore = defineStore("connection", () => {
       const config = getConfig(node.connectionId);
       if (config?.db_type === "sqlserver") {
         await loadSqlServerDatabaseObjects(node.connectionId, node.database, options);
-      } else if (usesTreeSchemaMode(config?.db_type)) {
+      } else if (usesTreeSchemaMode(config?.db_type) && !connectionUsesDatabaseObjectTreeMode(config)) {
         await loadSchemas(node.connectionId, node.database, options);
       } else {
         await loadTables(node.connectionId, node.database, undefined, options);
@@ -1460,6 +1474,10 @@ export const useConnectionStore = defineStore("connection", () => {
 
   function isSchemaAwareDatabase(connectionId: string): boolean {
     return isSchemaAware(getConfig(connectionId)?.db_type);
+  }
+
+  function metadataQuerySchema(connectionId: string, database: string, schema?: string): string {
+    return connectionObjectTreeQuerySchema(getConfig(connectionId), database, schema);
   }
 
   const COMPLETION_CACHE_MAX = 50;
@@ -1730,13 +1748,17 @@ export const useConnectionStore = defineStore("connection", () => {
     table: string,
     schema?: string,
   ): Promise<SqlCompletionColumn[]> {
-    if (isSchemaAwareDatabase(connectionId) && !schema) {
+    if (
+      isSchemaAwareDatabase(connectionId) &&
+      !connectionUsesDatabaseObjectTreeMode(getConfig(connectionId)) &&
+      !schema
+    ) {
       return [];
     }
     const cacheKey = `${connectionId}:${database}:${schema || ""}:${table}`;
     if (!completionColumnsCache.value[cacheKey]) {
       await ensureConnected(connectionId);
-      const querySchema = schema || database;
+      const querySchema = metadataQuerySchema(connectionId, database, schema);
       completionColumnsCache.value[cacheKey] = await api.getColumns(connectionId, database, querySchema, table);
       evictOldestCacheEntries(completionColumnsCache.value, COMPLETION_CACHE_MAX);
     }

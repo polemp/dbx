@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
+import { ref, computed, nextTick, watch, onBeforeUnmount, inject } from "vue";
 import { useSqlHighlighter } from "@/composables/useSqlHighlighter";
 import { useI18n } from "vue-i18n";
 import { translateBackendError } from "@/i18n/backend-errors";
@@ -116,14 +116,21 @@ import { buildRenameObjectSql, supportsObjectRename, type RenameableObjectType }
 import { buildRoutineRenameObjectSourceStatements, supportsSourceBackedRoutineRename } from "@/lib/objectSourceEditor";
 import { buildViewDdl } from "@/lib/viewDdl";
 import { getTableStructureCapabilities } from "@/lib/tableStructureCapabilities";
+import {
+  connectionObjectTreeQuerySchema,
+  connectionUsesDatabaseObjectTreeMode,
+  effectiveDatabaseTypeForConnection,
+} from "@/lib/jdbcDialect";
 import { hexToRgba } from "@/lib/color";
 import { focusSidebarRenameInput } from "@/lib/sidebarRenameFocus";
 import { hasTreeNodeDatabaseContext } from "@/lib/treeNodeContext";
 import { sidebarDisplayTableName } from "@/lib/sidebarTableNameDisplay";
 import {
   selectedTreeNodesInVisibleOrder as orderSelectedTreeNodes,
+  treeSelectionRangeIdsByIndex,
   treeSelectionRangeIds,
 } from "@/lib/sidebarTreeSelection";
+import { sidebarTreeContextKey } from "@/lib/sidebarTreeContext";
 import DangerConfirmDialog from "@/components/editor/DangerConfirmDialog.vue";
 import ProcedureExecutionDialog from "@/components/objects/ProcedureExecutionDialog.vue";
 import { useExportTracker, type ExportTask } from "@/composables/useExportTracker";
@@ -169,7 +176,6 @@ const props = defineProps<{
   dragDisabled?: boolean;
   pendingRename?: boolean;
   highlighted?: boolean;
-  visibleNodes?: TreeNode[];
 }>();
 
 const emit = defineEmits<{
@@ -181,13 +187,26 @@ const emit = defineEmits<{
 const usesFullWidthLabel = computed(() =>
   usesFullWidthTreeLabel(props.node.type, settingsStore.editorSettings.sidebarAllowHorizontalScroll),
 );
+const sidebarTreeContext = inject(sidebarTreeContextKey, null);
 const rowWidthClass = computed(() => (usesFullWidthLabel.value ? "w-max min-w-full" : "w-full min-w-0"));
 const labelWidthClass = computed(() =>
   usesFullWidthLabel.value ? "shrink-0 whitespace-nowrap" : "min-w-0 flex-1 truncate",
 );
 
 function currentDatabaseType(): DatabaseType | undefined {
+  return props.node.connectionId
+    ? effectiveDatabaseTypeForConnection(connectionStore.getConfig(props.node.connectionId))
+    : undefined;
+}
+
+function rawDatabaseType(): DatabaseType | undefined {
   return props.node.connectionId ? connectionStore.getConfig(props.node.connectionId)?.db_type : undefined;
+}
+
+function databaseTypeForNode(node: TreeNode): DatabaseType | undefined {
+  return node.connectionId
+    ? effectiveDatabaseTypeForConnection(connectionStore.getConfig(node.connectionId))
+    : undefined;
 }
 
 function hasNodeDatabaseContext(node: TreeNode): node is TreeNode & { connectionId: string; database: string } {
@@ -370,7 +389,7 @@ async function toggle() {
       const config = connectionStore.getConfig(node.connectionId);
       if (config?.db_type === "sqlserver") {
         await connectionStore.loadSqlServerDatabaseObjects(node.connectionId, node.database);
-      } else if (usesTreeSchemaMode(config?.db_type)) {
+      } else if (usesTreeSchemaMode(config?.db_type) && !connectionUsesDatabaseObjectTreeMode(config)) {
         await connectionStore.loadSchemas(node.connectionId, node.database);
       } else {
         await connectionStore.loadTables(node.connectionId, node.database);
@@ -442,7 +461,7 @@ function runRowClickAction() {
 }
 
 function visibleTreeNodes(): TreeNode[] {
-  if (props.visibleNodes) return props.visibleNodes;
+  if (sidebarTreeContext) return sidebarTreeContext.getVisibleNodes();
   return flattenTree(connectionStore.treeNodes).map((item) => item.node);
 }
 
@@ -468,10 +487,20 @@ function toggleTreeNodeSelection(node: TreeNode) {
 function selectTreeNodeRange(node: TreeNode) {
   const visible = visibleTreeNodes();
   const anchorId = connectionStore.treeSelectionAnchorId || connectionStore.selectedTreeNodeId || node.id;
+  const currentIndex = sidebarTreeContext ? sidebarTreeContext.getVisibleNodeIndex(node.id) : -1;
+  const anchorIndex = sidebarTreeContext ? sidebarTreeContext.getVisibleNodeIndex(anchorId) : -1;
+
+  if (sidebarTreeContext && currentIndex >= 0 && anchorIndex >= 0) {
+    connectionStore.selectedTreeNodeIds = treeSelectionRangeIdsByIndex(visible, currentIndex, anchorIndex, node.id);
+    connectionStore.selectedTreeNodeId = node.id;
+    return;
+  }
+
   if (!visible.some((item) => item.id === anchorId) || !visible.some((item) => item.id === node.id)) {
     selectSingleTreeNode(node);
     return;
   }
+
   const rangeIds = treeSelectionRangeIds(visible, node.id, anchorId, connectionStore.selectedTreeNodeId);
   connectionStore.selectedTreeNodeIds = rangeIds;
   connectionStore.selectedTreeNodeId = node.id;
@@ -723,6 +752,7 @@ async function openData() {
     table: node.label,
     dbType: config?.db_type,
   });
+  const tableSchema = connectionUsesDatabaseObjectTreeMode(config) ? undefined : node.schema;
   const tabId = (() => {
     if (settingsStore.editorSettings.reuseDataTab) {
       const existing = queryStore.tabs.find(
@@ -730,12 +760,12 @@ async function openData() {
       );
       if (existing) {
         existing.title = node.label;
-        existing.schema = node.schema;
+        existing.schema = tableSchema;
         queryStore.activeTabId = existing.id;
         return existing.id;
       }
     }
-    return queryStore.createTab(node.connectionId, node.database, node.label, "data", node.schema);
+    return queryStore.createTab(node.connectionId, node.database, node.label, "data", tableSchema);
   })();
   console.info("[DBX][openData:tab-created]", { traceId, tabId, elapsed: elapsed() });
   queryStore.setExecuting(tabId, true);
@@ -746,11 +776,12 @@ async function openData() {
     console.info("[DBX][openData:ensure-connected:done]", { traceId, elapsed: elapsed() });
     if (!config) throw new Error("Connection config not found");
 
-    const querySchema = node.schema || node.database;
+    const querySchema = connectionObjectTreeQuerySchema(config, node.database, tableSchema);
+    const effectiveDbType = effectiveDatabaseTypeForConnection(config);
     const limit = settingsStore.editorSettings.pageSize;
     const sql = await buildTableSelectSql({
-      databaseType: config.db_type,
-      schema: node.schema,
+      databaseType: effectiveDbType,
+      schema: tableSchema,
       tableName: node.label,
       columns: [],
       primaryKeys: [],
@@ -782,9 +813,9 @@ async function openData() {
           primaryKeys: columns.filter((column) => column.is_primary_key).map((column) => column.name),
           elapsed: elapsed(),
         });
-        const pks = editablePrimaryKeys(config.db_type, columns);
+        const pks = editablePrimaryKeys(effectiveDbType, columns);
         queryStore.setTableMeta(tabId, {
-          schema: node.schema,
+          schema: tableSchema,
           tableName: node.label,
           columns,
           primaryKeys: pks,
@@ -986,7 +1017,7 @@ function dropObjectSqlOptions(): DropObjectSqlOptions | null {
 function dropObjectSqlOptionsForNode(node: TreeNode): DropObjectSqlOptions | null {
   if (node.type !== "view" && node.type !== "procedure" && node.type !== "function") return null;
   return {
-    databaseType: node.connectionId ? connectionStore.getConfig(node.connectionId)?.db_type : undefined,
+    databaseType: databaseTypeForNode(node),
     objectType: node.type === "view" ? "VIEW" : node.type === "procedure" ? "PROCEDURE" : "FUNCTION",
     schema: node.schema,
     name: node.label,
@@ -1022,7 +1053,7 @@ function dropTableChildObjectSqlOptionsForNode(node: TreeNode): DropTableChildOb
   const name = tableChildDropObjectName(node).trim();
   if (!name) return null;
   return {
-    databaseType: node.connectionId ? connectionStore.getConfig(node.connectionId)?.db_type : undefined,
+    databaseType: databaseTypeForNode(node),
     objectType,
     schema: node.schema,
     tableName: node.tableName,
@@ -1138,7 +1169,7 @@ function viewObjectDdl() {
     .then(async (result) => {
       const connection = connectionStore.getConfig(node.connectionId!);
       const ddl = await buildViewDdl({
-        databaseType: connection?.db_type,
+        databaseType: effectiveDatabaseTypeForConnection(connection),
         schema,
         name: node.label,
         source: result.source,
@@ -1221,7 +1252,7 @@ function batchDropConfirmMessage(): string {
 async function dropSqlForTreeNode(node: TreeNode): Promise<string | null> {
   if (node.type === "table" && node.connectionId && node.database) {
     return buildDropTableSql({
-      databaseType: node.connectionId ? connectionStore.getConfig(node.connectionId)?.db_type : undefined,
+      databaseType: databaseTypeForNode(node),
       schema: node.schema,
       tableName: node.label,
     });
@@ -1454,7 +1485,7 @@ const canCreateTable = computed(() => {
   return (
     (props.node.type === "database" || props.node.type === "schema" || props.node.type === "group-tables") &&
     !!props.node.database &&
-    supportsTableStructureEditing(config?.db_type)
+    supportsTableStructureEditing(effectiveDatabaseTypeForConnection(config))
   );
 });
 
@@ -1482,12 +1513,18 @@ const canDropDatabase = computed(() => {
 
 const canCreateSchema = computed(() => {
   const config = props.node.connectionId ? connectionStore.getConfig(props.node.connectionId) : undefined;
-  return props.node.type === "database" && usesTreeSchemaMode(config?.db_type);
+  return (
+    props.node.type === "database" &&
+    usesTreeSchemaMode(config?.db_type) &&
+    !connectionUsesDatabaseObjectTreeMode(config)
+  );
 });
 
 const canDropSchema = computed(() => {
   const config = props.node.connectionId ? connectionStore.getConfig(props.node.connectionId) : undefined;
-  return props.node.type === "schema" && usesTreeSchemaMode(config?.db_type);
+  return (
+    props.node.type === "schema" && usesTreeSchemaMode(config?.db_type) && !connectionUsesDatabaseObjectTreeMode(config)
+  );
 });
 
 function tableAdminSqlOptions(): TableAdminSqlOptions {
@@ -1793,7 +1830,7 @@ async function confirmDuplicateStructure() {
   showDuplicateDialog.value = false;
   try {
     await connectionStore.ensureConnected(node.connectionId);
-    const databaseType = connectionStore.getConfig(node.connectionId)?.db_type;
+    const databaseType = databaseTypeForNode(node);
     const sql = await buildDuplicateTableStructureSql({
       databaseType,
       schema: node.schema,
@@ -2065,8 +2102,9 @@ async function exportDataLegacy(format: "csv" | "json" | "sql") {
             (column) => column.name,
           )
         : undefined;
+    const effectiveDbType = effectiveDatabaseTypeForConnection(config);
     const result = await fetchTableDataForExport({
-      databaseType: config.db_type,
+      databaseType: effectiveDbType,
       schema: node.schema,
       tableName: node.label,
       columns: queryColumns,
@@ -2106,7 +2144,7 @@ async function exportDataLegacy(format: "csv" | "json" | "sql") {
     }
 
     const content = await formatSqlInsert({
-      databaseType: config.db_type,
+      databaseType: effectiveDbType,
       schema: node.schema,
       tableName: node.label,
       columns: result.columns,
@@ -2335,36 +2373,31 @@ const canExpand = computed(() =>
     childCount: props.node.children?.length ?? 0,
   }),
 );
-const nodeConfig = computed(() =>
-  props.node.connectionId ? connectionStore.getConfig(props.node.connectionId) : undefined,
-);
 const canPin = computed(() => pinnableTypes.has(props.node.type));
 const canOpenSqlFileExecution = computed(() => {
-  return supportsSqlFileExecution(nodeConfig.value?.db_type);
+  return supportsSqlFileExecution(rawDatabaseType());
 });
 const canOpenDiagram = computed(() => {
-  return !!props.node.database && supportsSchemaDiagram(nodeConfig.value?.db_type);
+  return !!props.node.database && supportsSchemaDiagram(currentDatabaseType());
 });
 const canOpenDatabaseSearch = computed(() => {
-  return !!props.node.database && supportsDatabaseSearch(nodeConfig.value?.db_type);
+  return !!props.node.database && supportsDatabaseSearch(currentDatabaseType());
 });
 const canOpenObjectBrowser = computed(() => {
-  return supportsObjectBrowserTreeNode(nodeConfig.value?.db_type, props.node.type);
+  return supportsObjectBrowserTreeNode(rawDatabaseType(), props.node.type);
 });
 const canOpenTableImport = computed(() => {
-  return props.node.type === "table" && !!props.node.database && supportsTableImport(nodeConfig.value?.db_type);
+  return props.node.type === "table" && !!props.node.database && supportsTableImport(currentDatabaseType());
 });
 const canOpenStructureEditor = computed(() => {
-  return (
-    props.node.type === "table" && !!props.node.database && supportsTableStructureEditing(nodeConfig.value?.db_type)
-  );
+  return props.node.type === "table" && !!props.node.database && supportsTableStructureEditing(currentDatabaseType());
 });
 const canOpenFieldLineage = computed(() => {
   return (
     props.node.type === "column" &&
     !!props.node.database &&
     !!props.node.tableName &&
-    supportsFieldLineage(nodeConfig.value?.db_type)
+    supportsFieldLineage(currentDatabaseType())
   );
 });
 const isPinned = computed(() => props.node.pinned || connectionStore.isTreeNodePinned(props.node.id));
@@ -3719,27 +3752,29 @@ function treeItemMenuItems(): ContextMenuItem[] {
 
 /* Unfocused: subtle gray */
 .tree-item-active {
-  background-color: var(--tree-connection-active-bg, oklch(0.94 0 0)) !important;
+  background-color: var(--tree-connection-active-bg, rgb(235 235 235)) !important;
 }
 :root.dark .tree-item-active {
-  background-color: var(--tree-connection-active-bg, oklch(0.26 0 0)) !important;
+  background-color: var(--tree-connection-active-bg, rgb(36 36 36)) !important;
 }
 
 /* Focused: soft blue */
 .tree-item-active:focus {
-  background-color: var(--tree-connection-active-focus-bg, oklch(0.91 0.03 250)) !important;
+  background-color: var(--tree-connection-active-focus-bg, rgb(211 227 245)) !important;
 }
 :root.dark .tree-item-active:focus {
-  background-color: var(--tree-connection-active-focus-bg, oklch(0.35 0.06 250)) !important;
+  background-color: var(--tree-connection-active-focus-bg, rgb(33 60 89)) !important;
 }
 
 /* Locate highlight: instant amber, then fade on removal */
 .tree-item-highlight {
+  background-color: rgb(253 225 167) !important;
   background-color: oklch(0.92 0.08 85) !important;
   transition: background-color 0.8s ease-out 0.6s;
 }
 
 :root.dark .tree-item-highlight {
+  background-color: rgb(110 67 0) !important;
   background-color: oklch(0.42 0.12 80) !important;
   transition: background-color 0.8s ease-out 0.6s;
 }

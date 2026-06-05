@@ -21,7 +21,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { resolveExecutableSql } from "@/lib/sqlExecutionTarget";
 import { formatSqlText, type SqlFormatDialect } from "@/lib/sqlFormatter";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { useSettingsStore } from "@/stores/settingsStore";
+import { useSettingsStore, type EditorSettings } from "@/stores/settingsStore";
 import { useTheme } from "@/composables/useTheme";
 import { useToast } from "@/composables/useToast";
 import {
@@ -93,6 +93,7 @@ const props = defineProps<{
   modelValue: string;
   connectionId?: string;
   database?: string;
+  schema?: string;
   databaseType?: DatabaseType;
   dialect?: "mysql" | "postgres" | "sqlserver";
   formatDialect?: SqlFormatDialect;
@@ -461,7 +462,8 @@ function identifierRangeAt(sql: string, pos: number): { from: number; to: number
 }
 
 function completionCacheKey(table: { name: string; schema?: string | null }) {
-  return table.schema ? `${table.schema}.${table.name}` : table.name;
+  const schema = table.schema ?? props.schema;
+  return schema ? `${schema}.${table.name}` : table.name;
 }
 
 async function ensureColumnsForTable(table: { name: string; schema?: string | null }) {
@@ -471,7 +473,7 @@ async function ensureColumnsForTable(table: { name: string; schema?: string | nu
     props.connectionId,
     props.database,
     table.name,
-    table.schema ?? undefined,
+    table.schema ?? props.schema,
   );
   if (columns.length === 0) return;
   cachedColumnsByTable.set(cacheKey, columns);
@@ -480,7 +482,7 @@ async function ensureColumnsForTable(table: { name: string; schema?: string | nu
 async function ensureForeignKeysForTable(table: { name: string; schema?: string | null }) {
   const cacheKey = completionCacheKey(table);
   if (cachedForeignKeysByTable.has(cacheKey) || !props.connectionId || props.database == null) return;
-  const querySchema = table.schema ?? props.database;
+  const querySchema = table.schema ?? props.schema ?? props.database;
   try {
     const foreignKeys = await api.listForeignKeys(props.connectionId, props.database, querySchema, table.name);
     cachedForeignKeysByTable.set(
@@ -578,6 +580,7 @@ async function resolveSqlHoverTooltip(currentView: EditorViewType, pos: number) 
         props.database,
         name,
         MAX_COMPLETION_TABLES,
+        props.schema,
       );
     }
 
@@ -588,6 +591,7 @@ async function resolveSqlHoverTooltip(currentView: EditorViewType, pos: number) 
         props.database,
         name,
         MAX_COMPLETION_TABLES,
+        props.schema,
       );
       cachedTables = [...cachedTables, ...hoverTables];
       table = matchTable(identifier, hoverTables) ?? matchTable(name, hoverTables);
@@ -709,6 +713,7 @@ async function enrichSemanticDiagnosticTables(tables: SqlTableReference[]) {
         props.database,
         table.name,
         MAX_COMPLETION_TABLES,
+        props.schema,
       );
       cachedTables = [...cachedTables, ...matches];
       const match = matches.find((item) => item.name.toLowerCase() === table.name.toLowerCase());
@@ -1028,12 +1033,13 @@ async function performAsyncCompletionWithResult(
         props.connectionId!,
         props.database!,
         completionContext.insertTable,
-        completionContext.insertSchema,
+        completionContext.insertSchema ?? props.schema,
       );
       if (epoch !== completionEpoch) return null;
       if (insertCols.length > 0) {
-        const insertKey = completionContext.insertSchema
-          ? `${completionContext.insertSchema}.${completionContext.insertTable}`
+        const insertSchema = completionContext.insertSchema ?? props.schema;
+        const insertKey = insertSchema
+          ? `${insertSchema}.${completionContext.insertTable}`
           : completionContext.insertTable;
         insertColumnsByTable.set(insertKey, insertCols);
       }
@@ -1051,6 +1057,7 @@ async function performAsyncCompletionWithResult(
         props.database!,
         completionContext.qualifier || completionContext.prefix,
         MAX_COMPLETION_TABLES,
+        props.schema,
       )
     : cachedTables;
   if (epoch !== completionEpoch) return null;
@@ -1065,6 +1072,7 @@ async function performAsyncCompletionWithResult(
         props.database!,
         completionContext.qualifier || completionContext.prefix,
         MAX_COMPLETION_TABLES,
+        props.schema,
       )
     : cachedCompletionObjects;
   if (epoch !== completionEpoch) return null;
@@ -1130,7 +1138,7 @@ async function performAsyncCompletionWithResult(
   if (unresolvedRefs.length > 0) {
     const lookupGroups = await Promise.all(
       unresolvedRefs.map((rt) =>
-        connectionStore.listCompletionTables(props.connectionId!, props.database!, rt.name, 20),
+        connectionStore.listCompletionTables(props.connectionId!, props.database!, rt.name, 20, props.schema),
       ),
     );
     if (epoch !== completionEpoch) return null;
@@ -1169,7 +1177,7 @@ async function performAsyncCompletionWithResult(
           props.connectionId!,
           props.database!,
           refTable.name,
-          refTable.schema,
+          refTable.schema ?? props.schema,
         );
         if (epoch !== completionEpoch) return;
         if (columns.length === 0) return;
@@ -1427,34 +1435,7 @@ onMounted(async () => {
     doubleDollarQuotedStrings: false,
   });
 
-  function getEditorSettingsFromStorage(): EditorSettings {
-    try {
-      const raw = localStorage.getItem("dbx-editor-settings");
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<EditorSettings>;
-        return {
-          ...settingsStore.editorSettings,
-          ...parsed,
-          customThemeColors: parsed.customThemeColors ?? settingsStore.editorSettings.customThemeColors,
-          customThemes: parsed.customThemes ?? settingsStore.editorSettings.customThemes,
-          activeCustomThemeId: parsed.activeCustomThemeId ?? settingsStore.editorSettings.activeCustomThemeId,
-        } as EditorSettings;
-      }
-    } catch {
-      /* ignore */
-    }
-    return settingsStore.editorSettings;
-  }
-
-  function getCurrentCustomThemeColors() {
-    const settings = getEditorSettingsFromStorage();
-    if (settings.theme !== "custom") return settings.customThemeColors;
-    const activeTheme =
-      settings.customThemes?.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes?.[0];
-    return activeTheme?.colors ?? settings.customThemeColors;
-  }
-
-  const initialSettings = getEditorSettingsFromStorage();
+  const initialSettings = settingsStore.editorSettings;
   const theme = await loadEditorTheme(initialSettings.theme, editorThemeAppearance(), getCurrentCustomThemeColors());
 
   const activeLineHighlighter = ViewPlugin.fromClass(
@@ -1483,8 +1464,6 @@ onMounted(async () => {
     },
     { decorations: (v) => v.decorations },
   );
-
-  const ss = settingsStore.editorSettings;
 
   const state = EditorState.create({
     doc: props.modelValue,
@@ -1626,6 +1605,7 @@ onMounted(async () => {
                   props.database!,
                   identifier,
                   MAX_COMPLETION_TABLES,
+                  props.schema,
                 );
               }
 
@@ -1686,7 +1666,7 @@ onMounted(async () => {
                       props.connectionId!,
                       props.database!,
                       refTable.name,
-                      refTable.schema,
+                      refTable.schema ?? props.schema,
                     );
                     cachedColumnsByTable.set(cacheKey, cols);
                   } catch {
@@ -1729,7 +1709,7 @@ onMounted(async () => {
   // Ensure theme is applied with the latest settings after mount
   void nextTick(async () => {
     if (!view.value || !codeMirrorTheme) return;
-    const settings = getEditorSettingsFromStorage();
+    const settings = settingsStore.editorSettings;
     const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
     const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
@@ -1782,6 +1762,15 @@ watch(
 );
 
 watch(
+  () => props.schema,
+  () => {
+    refreshCompletionCache();
+    setSemanticDiagnostics([]);
+    scheduleSemanticDiagnostics();
+  },
+);
+
+watch(
   () => props.forceWordWrap,
   () => {
     if (!view.value || !wordWrapComp) return;
@@ -1790,6 +1779,16 @@ watch(
     });
   },
 );
+
+// Derive current custom theme colors from settingsStore
+function getCurrentCustomThemeColors() {
+  const settings = settingsStore.editorSettings;
+  if (settings.theme !== "custom") return settings.customThemeColors;
+  const activeTheme =
+    settings.customThemes?.find((t: { id: string }) => t.id === settings.activeCustomThemeId) ||
+    settings.customThemes?.[0];
+  return activeTheme?.colors ?? settings.customThemeColors;
+}
 
 // Reactively apply editor settings changes
 watch(
@@ -1801,10 +1800,9 @@ watch(
     if (!isGestureZooming.value && !zoomCommitScheduler.hasPendingCommit() && liveFontSize.value !== ss.fontSize) {
       liveFontSize.value = ss.fontSize;
     }
-    syncEditorFontCssVars(liveFontSize.value, initialSettings.fontFamily);
-    const settings = getEditorSettingsFromStorage();
-    const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
-    const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
+    syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
+    const themeColors = getCurrentCustomThemeColors();
+    const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [
         codeMirrorTheme.reconfigure(themeExt),

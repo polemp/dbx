@@ -56,6 +56,7 @@ pub struct QueryExecutionOptions {
     /// Query timeout in seconds. `None` uses the default (30s).
     /// `Some(0)` disables the timeout entirely.
     pub timeout_secs: Option<u64>,
+    pub execution_id: Option<String>,
 }
 
 fn query_result_row_limit(max_rows: Option<usize>) -> usize {
@@ -503,6 +504,12 @@ pub async fn do_execute(
     match pool {
         PoolKind::DuckDb(con) => {
             let con = con.clone();
+            if let Some(ref execution_id) = options.execution_id {
+                let interrupt_handle = con.lock().map_err(|e| e.to_string())?.interrupt_handle();
+                state.running_queries.register_interrupt(execution_id, move || {
+                    interrupt_handle.interrupt();
+                });
+            }
             let sql = sql.to_string();
             let database = database.map(str::to_string);
             let attached_names = duckdb_attached_names;
@@ -556,6 +563,17 @@ pub async fn do_execute(
             drop(connections);
             wait_for_query_opt(cancel_token, query_timeout, db::sqlite::execute_query_with_max_rows(&p, sql, max_rows))
                 .await
+        }
+        PoolKind::Rqlite(client) => {
+            let client = client.clone();
+            let max_rows = options.max_rows;
+            drop(connections);
+            wait_for_query_opt(
+                cancel_token,
+                query_timeout,
+                db::rqlite_driver::execute_query_with_max_rows(&client, sql, max_rows),
+            )
+            .await
         }
         PoolKind::ClickHouse(client) => {
             let client = client.clone();
@@ -630,6 +648,12 @@ pub async fn do_execute(
                 return Err("External data sources are read-only. Only SELECT queries are supported.".to_string());
             }
             let con = ext_pool.cache.clone();
+            if let Some(ref execution_id) = options.execution_id {
+                let interrupt_handle = con.lock().map_err(|e| e.to_string())?.interrupt_handle();
+                state.running_queries.register_interrupt(execution_id, move || {
+                    interrupt_handle.interrupt();
+                });
+            }
             let sql = sql.to_string();
             let max_rows = options.max_rows;
             drop(connections);
@@ -647,7 +671,7 @@ pub async fn do_execute(
             let session = session.clone();
             let sql = sql.to_string();
             let schema = schema.map(str::to_string);
-            let database = config.effective_database().unwrap_or("").to_string();
+            let database = database.unwrap_or_else(|| config.effective_database().unwrap_or("")).to_string();
             let max_rows = options.max_rows;
             let plugin_timeout = query_timeout;
             drop(connections);
@@ -1094,7 +1118,9 @@ pub async fn execute_statements_in_transaction(
             PoolKind::Postgres(pg) => TxPath::Pg(pg.clone()),
             PoolKind::Mysql(mp, _mode) => TxPath::Mysql(mp.clone(), false),
             PoolKind::Sqlite(sq) => TxPath::Sqlite(sq.clone()),
-            PoolKind::ClickHouse(_) | PoolKind::SqlServer(_) | PoolKind::Agent(_) => TxPath::Explicit,
+            PoolKind::ClickHouse(_) | PoolKind::Rqlite(_) | PoolKind::SqlServer(_) | PoolKind::Agent(_) => {
+                TxPath::Explicit
+            }
             PoolKind::DuckDb(_)
             | PoolKind::Redis(_)
             | PoolKind::MongoDb(_)

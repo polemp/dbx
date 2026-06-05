@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   SCHEMA_AWARE_TYPES,
   TREE_SCHEMA_TYPES,
+  databaseObjectTreeNodeSchema,
+  databaseObjectTreeQuerySchema,
   getDatabaseCapability,
   supportsDatabaseCreation,
   supportsDatabaseSearch,
@@ -16,6 +18,7 @@ import {
   supportsTableTruncate,
   supportsTableStructureEditing,
   supportsTransfer,
+  usesDatabaseObjectTreeMode,
   usesPostgresLikeStructureCopy,
   usesTreeSchemaMode,
 } from "../../apps/desktop/src/lib/databaseCapabilities.ts";
@@ -76,6 +79,21 @@ test("describes schema tree mode through the capability helper", () => {
   assert.equal(usesTreeSchemaMode("h2"), true);
   assert.equal(usesTreeSchemaMode("mysql"), false);
   assert.equal(usesTreeSchemaMode(undefined), false);
+});
+
+test("generic JDBC database nodes list objects directly under catalogs", () => {
+  assert.equal(TREE_SCHEMA_TYPES.has("jdbc"), true);
+  assert.equal(usesDatabaseObjectTreeMode("jdbc"), true);
+  assert.equal(databaseObjectTreeQuerySchema("jdbc", "test"), "");
+  assert.equal(databaseObjectTreeNodeSchema("jdbc", "test"), undefined);
+  assert.equal(databaseObjectTreeQuerySchema("jdbc", "test", "dataeye_starpony"), "");
+  assert.equal(databaseObjectTreeNodeSchema("jdbc", "test", "dataeye_starpony"), undefined);
+});
+
+test("schema tree databases still use database nodes as default schema context", () => {
+  assert.equal(usesDatabaseObjectTreeMode("postgres"), false);
+  assert.equal(databaseObjectTreeQuerySchema("postgres", "app"), "app");
+  assert.equal(databaseObjectTreeNodeSchema("postgres", "app"), "app");
 });
 
 test("treats Trino tables as schema-qualified SQL targets", () => {
@@ -157,6 +175,22 @@ test("uses Navicat-style table editing defaults for updateable SQL table engines
     requiresTransactionalTableForExistingRows: false,
     transaction: true,
   });
+  assert.deepEqual(getDatabaseCapability("rqlite").tableData, {
+    insert: true,
+    updateRequiresPrimaryKey: false,
+    deleteRequiresPrimaryKey: false,
+    keylessRowPredicate: true,
+    requiresTransactionalTableForExistingRows: false,
+    transaction: true,
+  });
+  assert.deepEqual(getDatabaseCapability("kwdb").tableData, {
+    insert: true,
+    updateRequiresPrimaryKey: false,
+    deleteRequiresPrimaryKey: false,
+    keylessRowPredicate: true,
+    requiresTransactionalTableForExistingRows: false,
+    transaction: true,
+  });
 });
 
 test("keeps conservative table editing defaults for unknown database types", () => {
@@ -184,24 +218,30 @@ test("describes feature support through capability helpers", () => {
   assert.equal(supportsTableStructureEditing("oracle"), true);
   assert.equal(supportsTableStructureEditing("dameng"), true);
   assert.equal(supportsTableStructureEditing("gaussdb"), true);
+  assert.equal(supportsTableStructureEditing("kwdb"), true);
   assert.equal(supportsTableStructureEditing("opengauss"), true);
   assert.equal(supportsTableStructureEditing("redshift"), true);
   assert.equal(supportsTableStructureEditing("clickhouse"), true);
+  assert.equal(supportsTableStructureEditing("rqlite"), true);
   assert.equal(supportsTableStructureEditing("mongodb"), false);
   assert.equal(supportsDatabaseCreation("clickhouse"), true);
   assert.equal(supportsDatabaseCreation("sqlite"), false);
   assert.equal(supportsFieldLineage("gaussdb"), true);
+  assert.equal(supportsFieldLineage("kwdb"), true);
   assert.equal(supportsFieldLineage("trino"), false);
   assert.equal(supportsTransfer("duckdb"), true);
   assert.equal(supportsTransfer("hive"), false);
   assert.equal(supportsDriverManagement("oracle"), true);
   assert.equal(supportsDriverManagement("mysql"), false);
+  assert.equal(supportsDriverManagement("kwdb"), false);
   assert.equal(usesPostgresLikeStructureCopy("gaussdb"), true);
+  assert.equal(usesPostgresLikeStructureCopy("kwdb"), true);
   assert.equal(usesPostgresLikeStructureCopy("mysql"), false);
   assert.equal(supportsObjectBrowser("mysql"), true);
   assert.equal(supportsObjectBrowser("mongodb"), false);
   assert.equal(supportsTableTruncate("mysql"), true);
   assert.equal(supportsTableTruncate("duckdb"), false);
+  assert.equal(supportsTableTruncate("rqlite"), false);
 });
 
 test("object browser entry follows database tree shape", () => {
@@ -210,5 +250,6 @@ test("object browser entry follows database tree shape", () => {
   assert.equal(supportsObjectBrowserTreeNode("sqlserver", "database"), true);
   assert.equal(supportsObjectBrowserTreeNode("sqlserver", "schema"), true);
   assert.equal(supportsObjectBrowserTreeNode("mysql", "database"), true);
+  assert.equal(supportsObjectBrowserTreeNode("jdbc", "database"), true);
   assert.equal(supportsObjectBrowserTreeNode("mongodb", "database"), false);
 });

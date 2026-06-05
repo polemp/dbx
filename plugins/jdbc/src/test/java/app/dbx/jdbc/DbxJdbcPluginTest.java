@@ -225,13 +225,40 @@ final class DbxJdbcPluginTest {
               "connection_string": "jdbc:h2:mem:dbx_quirks"
             }
             """);
+        JsonNode mysql = MAPPER.readTree("""
+            {
+              "connection_string": "jdbc:mysql://127.0.0.1:9030/demo"
+            }
+            """);
+        JsonNode kingbase = MAPPER.readTree("""
+            {
+              "connection_string": "jdbc:kingbase8://127.0.0.1:54321/demo"
+            }
+            """);
+        JsonNode kyuubi = MAPPER.readTree("""
+            {
+              "jdbc_driver_class": "org.apache.kyuubi.jdbc.KyuubiHiveDriver"
+            }
+            """);
 
         assertEquals(true, DbxJdbcPlugin.driverQuirks(yashan).skipExecutionContext());
         assertEquals(true, DbxJdbcPlugin.driverQuirks(yashan).useOracleMetadata());
         assertEquals(true, DbxJdbcPlugin.driverQuirks(iris).skipExecutionContext());
         assertEquals(false, DbxJdbcPlugin.driverQuirks(iris).useOracleMetadata());
+        assertEquals(true, DbxJdbcPlugin.driverQuirks(iris).caseInsensitiveSchemaMetadata());
         assertEquals(false, DbxJdbcPlugin.driverQuirks(h2).skipExecutionContext());
         assertEquals(false, DbxJdbcPlugin.driverQuirks(h2).useOracleMetadata());
+        assertEquals(false, DbxJdbcPlugin.driverQuirks(h2).caseInsensitiveSchemaMetadata());
+        assertEquals(false, DbxJdbcPlugin.driverQuirks(h2).useCatalogFallbackSql());
+        assertEquals(true, DbxJdbcPlugin.driverQuirks(mysql).useCatalogFallbackSql());
+        assertEquals(true, DbxJdbcPlugin.driverQuirks(kingbase).ignoreCatalogForSchemaMetadata());
+        assertEquals(true, DbxJdbcPlugin.driverQuirks(kyuubi).useCatalogFallbackSql());
+    }
+
+    @Test
+    void schemaDisplayNamePrefersMixedCaseOverAllUppercaseDuplicate() {
+        assertEquals(true, DbxJdbcPlugin.preferSchemaDisplayName("SQLUSER", "SQLUser"));
+        assertEquals(false, DbxJdbcPlugin.preferSchemaDisplayName("SQLUser", "SQLUSER"));
     }
 
     @Test

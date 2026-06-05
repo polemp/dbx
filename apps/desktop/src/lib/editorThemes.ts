@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { EditorTheme, CustomThemeColors, CustomTheme } from "@/stores/settingsStore";
+import type { EditorTheme, CustomThemeColors } from "@/stores/settingsStore";
 import type { AppThemeAppearance } from "@/lib/appTheme";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -10,7 +10,14 @@ type LucideIconNode = Array<[string, Record<string, string>]>;
 export const EDITOR_FONT_SIZE_CSS_VAR = "--dbx-editor-font-size";
 export const EDITOR_FONT_FAMILY_CSS_VAR = "--dbx-editor-font-family";
 
-// ==================== 自定义主题配�?====================
+const SUPPORTS_COLOR_MIX =
+  typeof CSS !== "undefined" &&
+  typeof CSS.supports === "function" &&
+  CSS.supports("color", "color-mix(in oklch, black 50%, white)");
+const SUPPORTS_OKLCH =
+  typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("color", "oklch(0.62 0.19 255)");
+
+// ==================== 自定义主题配置 ====================
 // 在这里修改你喜欢的颜色！
 
 const customThemeColors = {
@@ -20,25 +27,32 @@ const customThemeColors = {
   cursor: "#f5e0dc", // 光标颜色
 
   // 语法高亮颜色
-  keyword: "#cba6f7", // 关键�?(SELECT, FROM, WHERE �?
-  string: "#a6e3a1", // 字符�?  number: "#fab387", // 数字
+  keyword: "#cba6f7", // 关键字 (SELECT, FROM, WHERE 等)
+  string: "#a6e3a1", // 字符串
+  number: "#fab387", // 数字
   comment: "#6c7086", // 注释
-  type: "#89b4fa", // 类型 (INTEGER, TEXT �?
+  type: "#89b4fa", // 类型 (INTEGER, TEXT 等)
   variable: "#f38ba8", // 变量
   function: "#89dceb", // 函数
-  operator: "#89b4fa", // 运算�?  punctuation: "#9399b2", // 标点符号
-  property: "#f9e2af", // 属�?字段�?  tag: "#cba6f7", // XML/HTML 标签
-  attribute: "#fab387", // 属性�?  className: "#f9e2af", // 类名
+  operator: "#89b4fa", // 运算符
+  punctuation: "#9399b2", // 标点符号
+  property: "#f9e2af", // 属性/字段名
+  tag: "#cba6f7", // XML/HTML 标签
+  attribute: "#fab387", // 属性名
+  className: "#f9e2af", // 类名
 
   // UI 元素
-  gutterBackground: "#181825", // 侧边栏背�?  activeLine: "#313244", // 当前行高�?  matchingBracket: "#45475a", // 匹配括号背景
+  gutterBackground: "#181825", // 侧边栏背景
+  activeLine: "#313244", // 当前行高亮
+  matchingBracket: "#45475a", // 匹配括号背景
 
   // 特殊
   builtin: "#89dceb", // 内置函数
-  meta: "#cdd6f4", // 元信�?  invalid: "#f38ba8", // 无效字符
+  meta: "#cdd6f4", // 元信息
+  invalid: "#f38ba8", // 无效字符
 };
 
-/** 创建自定�?CodeMirror 主题 */
+/** 创建自定义 CodeMirror 主题 */
 function createCustomTheme(
   EditorView: typeof import("@codemirror/view").EditorView,
   colors?: CustomThemeColors,
@@ -96,7 +110,7 @@ function createCustomTheme(
         outline: "none",
       },
     },
-    { dark: true },
+    { dark: isDark },
   );
 
   const highlightStyle = HighlightStyle.define([
@@ -227,6 +241,18 @@ function lucideCompletionIconMask(iconNode: LucideIconNode) {
   };
 }
 
+function colorMixValue(fallback: string, preferred: string): string {
+  return SUPPORTS_COLOR_MIX ? preferred : fallback;
+}
+
+function oklchValue(fallback: string, preferred: string): string {
+  return SUPPORTS_OKLCH ? preferred : fallback;
+}
+
+export function cellDetailActiveLineColor(): string {
+  return colorMixValue("var(--accent)", "color-mix(in oklch, var(--foreground) 4%, transparent)");
+}
+
 /** Load a CodeMirror theme extension by theme name. */
 export function resolveEditorTheme(theme: EditorTheme, appAppearance: AppThemeAppearance): Exclude<EditorTheme, "app"> {
   if (theme === "app") return appAppearance === "dark" ? "one-dark" : "vscode-light";
@@ -335,7 +361,10 @@ export function buildSqlCompletionThemeRules(): CodeMirrorStyleSpec {
   return {
     ".cm-tooltip.cm-tooltip-autocomplete": {
       background: "var(--popover)",
-      border: "1px solid color-mix(in oklch, var(--border) 82%, var(--foreground) 18%)",
+      border: colorMixValue(
+        "1px solid var(--border)",
+        "1px solid color-mix(in oklch, var(--border) 82%, var(--foreground) 18%)",
+      ),
       borderRadius: "8px",
       boxShadow: "0 8px 18px rgb(0 0 0 / 0.14)",
       color: "var(--popover-foreground)",
@@ -349,7 +378,10 @@ export function buildSqlCompletionThemeRules(): CodeMirrorStyleSpec {
       maxHeight: "min(280px, calc(100vh - 32px))",
       minWidth: "min(280px, calc(100vw - 24px))",
       padding: "0 4px 0 !important",
-      scrollbarColor: "color-mix(in oklch, var(--muted-foreground) 44%, transparent) transparent",
+      scrollbarColor: colorMixValue(
+        "var(--muted-foreground) transparent",
+        "color-mix(in oklch, var(--muted-foreground) 44%, transparent) transparent",
+      ),
       scrollbarWidth: "thin",
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
@@ -366,9 +398,12 @@ export function buildSqlCompletionThemeRules(): CodeMirrorStyleSpec {
       transition: "background-color 90ms ease, color 90ms ease",
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
-      background: "color-mix(in oklch, var(--primary) 14%, var(--popover)) !important",
+      background: `${colorMixValue("var(--accent)", "color-mix(in oklch, var(--primary) 14%, var(--popover))")} !important`,
       color: "var(--popover-foreground) !important",
-      outline: "1px solid color-mix(in oklch, var(--primary) 22%, transparent)",
+      outline: colorMixValue(
+        "1px solid var(--border)",
+        "1px solid color-mix(in oklch, var(--primary) 22%, transparent)",
+      ),
     },
     ".cm-completionIcon": {
       alignItems: "center",
@@ -403,27 +438,42 @@ export function buildSqlCompletionThemeRules(): CodeMirrorStyleSpec {
       display: "none",
     },
     ".cm-completionIcon-table": {
-      color: "color-mix(in oklch, var(--primary) 92%, var(--popover-foreground))",
+      color: colorMixValue("var(--primary)", "color-mix(in oklch, var(--primary) 92%, var(--popover-foreground))"),
       ...lucideCompletionIconMask(TABLE_ICON),
     },
     ".cm-completionIcon-column": {
-      color: "color-mix(in oklch, var(--blue-500, #3b82f6) 92%, var(--popover-foreground))",
+      color: colorMixValue(
+        "var(--blue-500, #3b82f6)",
+        "color-mix(in oklch, var(--blue-500, #3b82f6) 92%, var(--popover-foreground))",
+      ),
       ...lucideCompletionIconMask(COLUMNS_ICON),
     },
     ".cm-completionIcon-keyword": {
-      color: "color-mix(in oklch, var(--orange-500, #f97316) 92%, var(--popover-foreground))",
+      color: colorMixValue(
+        "var(--orange-500, #f97316)",
+        "color-mix(in oklch, var(--orange-500, #f97316) 92%, var(--popover-foreground))",
+      ),
       ...lucideCompletionIconMask(KEYWORD_ICON),
     },
     ".cm-completionIcon-snippet": {
-      color: "color-mix(in oklch, var(--violet-500, #8b5cf6) 92%, var(--popover-foreground))",
+      color: colorMixValue(
+        "var(--violet-500, #8b5cf6)",
+        "color-mix(in oklch, var(--violet-500, #8b5cf6) 92%, var(--popover-foreground))",
+      ),
       ...lucideCompletionIconMask(SNIPPET_ICON),
     },
     ".cm-completionIcon-function": {
-      color: "color-mix(in oklch, var(--emerald-500, #10b981) 92%, var(--popover-foreground))",
+      color: colorMixValue(
+        "var(--emerald-500, #10b981)",
+        "color-mix(in oklch, var(--emerald-500, #10b981) 92%, var(--popover-foreground))",
+      ),
       ...lucideCompletionIconMask(FUNCTION_ICON),
     },
     ".cm-completionIcon-schema": {
-      color: "color-mix(in oklch, var(--amber-500, #f59e0b) 92%, var(--popover-foreground))",
+      color: colorMixValue(
+        "var(--amber-500, #f59e0b)",
+        "color-mix(in oklch, var(--amber-500, #f59e0b) 92%, var(--popover-foreground))",
+      ),
       ...lucideCompletionIconMask(SCHEMA_ICON),
     },
     ".cm-completionLabel": {
@@ -434,12 +484,15 @@ export function buildSqlCompletionThemeRules(): CodeMirrorStyleSpec {
       letterSpacing: "0",
     },
     ".cm-completionMatchedText": {
-      color: "oklch(0.62 0.19 255)",
+      color: oklchValue("rgb(29 132 245)", "oklch(0.62 0.19 255)"),
       fontWeight: "700",
       textDecoration: "none",
     },
     ".cm-completionDetail": {
-      color: "color-mix(in oklch, var(--popover-foreground) 68%, var(--popover))",
+      color: colorMixValue(
+        "var(--muted-foreground)",
+        "color-mix(in oklch, var(--popover-foreground) 68%, var(--popover))",
+      ),
       fontSize: `clamp(11px, calc(var(${EDITOR_FONT_SIZE_CSS_VAR}, 13px) - 1px), 13px)`,
       fontWeight: "500",
       fontStyle: "normal",

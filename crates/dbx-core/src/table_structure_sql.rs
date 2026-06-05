@@ -211,6 +211,7 @@ fn capabilities_for(database_type: Option<DatabaseType>) -> TableStructureCapabi
         Some(
             DatabaseType::Postgres
             | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
             | DatabaseType::OpenGauss
             | DatabaseType::Highgo
             | DatabaseType::Vastbase
@@ -241,7 +242,7 @@ fn capabilities_for(database_type: Option<DatabaseType>) -> TableStructureCapabi
             comment: true,
             ..base
         },
-        Some(DatabaseType::Sqlite) => TableStructureCapabilities {
+        Some(DatabaseType::Sqlite | DatabaseType::Rqlite) => TableStructureCapabilities {
             dialect: StructureDialect::Sqlite,
             add_column: true,
             drop_column: true,
@@ -960,24 +961,26 @@ fn build_oracle_like_existing_column_sql(
         ));
         current_name = column.name.clone();
     }
-    if column.data_type.trim() != original.data_type.trim() {
-        statements.push(format!(
-            "ALTER TABLE {table} MODIFY ({} {});",
-            quote_ident(dialect, &current_name),
-            column_data_type(dialect, column)
-        ));
-    }
-    if column.is_nullable != original.is_nullable {
-        let nullability = if column.is_nullable { "NULL" } else { "NOT NULL" };
-        statements.push(format!("ALTER TABLE {table} MODIFY ({} {nullability});", quote_ident(dialect, &current_name)));
-    }
-    if normalize_default(Some(&column.default_value)) != original_default(column) {
+    let type_changed = column.data_type.trim() != original.data_type.trim();
+    let nullable_changed = column.is_nullable != original.is_nullable;
+    let default_changed = normalize_default(Some(&column.default_value)) != original_default(column);
+    if type_changed || nullable_changed || default_changed {
+        let data_type = column_data_type(dialect, column);
+        let mut parts = vec![quote_ident(dialect, &current_name), data_type];
+        // Always include nullability so the statement is self-contained (required by Dameng).
+        if !column.is_nullable {
+            parts.push("NOT NULL".to_string());
+        } else {
+            parts.push("NULL".to_string());
+        }
         let default_value = normalize_default(Some(&column.default_value));
-        let default_value = if default_value.is_empty() { "NULL".to_string() } else { default_value };
-        statements.push(format!(
-            "ALTER TABLE {table} MODIFY ({} DEFAULT {default_value});",
-            quote_ident(dialect, &current_name)
-        ));
+        if !default_value.is_empty() {
+            parts.push(format!("DEFAULT {default_value}"));
+        } else if default_changed {
+            // User cleared the default — explicitly drop it.
+            parts.push("DEFAULT NULL".to_string());
+        }
+        statements.push(format!("ALTER TABLE {table} MODIFY ({});", parts.join(" ")));
     }
     if clean(&column.comment) != original_comment(column) {
         let comment_value =
@@ -1961,6 +1964,34 @@ mod tests {
         assert_eq!(
             result.warnings,
             vec!["SQLite cannot safely alter existing column \"name\" without rebuilding the table."]
+        );
+    }
+
+    #[test]
+    fn builds_rqlite_changes_with_sqlite_dialect() {
+        let mut email = column("email");
+        email.data_type = "text".to_string();
+        email.is_nullable = false;
+        let mut email_index = index("idx_users_email", &["email"]);
+        email_index.filter = "email IS NOT NULL".to_string();
+
+        let result = build_table_structure_change_sql(TableStructureSqlOptions {
+            database_type: Some(DatabaseType::Rqlite),
+            schema: None,
+            table_name: "users".to_string(),
+            columns: vec![email],
+            indexes: vec![email_index],
+            table_comment: None,
+            original_table_comment: None,
+        });
+
+        assert_eq!(result.warnings, Vec::<String>::new());
+        assert_eq!(
+            result.statements,
+            vec![
+                "ALTER TABLE \"users\" ADD COLUMN \"email\" text NOT NULL;",
+                "CREATE INDEX \"idx_users_email\" ON \"users\" (\"email\") WHERE email IS NOT NULL;",
+            ]
         );
     }
 

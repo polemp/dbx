@@ -229,6 +229,7 @@ const driverProfiles: Record<
   },
   redis: { type: "redis", port: 6379, user: "", label: "Redis", icon: "redis" },
   sqlite: { type: "sqlite", port: 0, user: "", label: "SQLite", icon: "sqlite" },
+  rqlite: { type: "rqlite", port: 4001, user: "", label: "RQLite", icon: "rqlite" },
   duckdb: { type: "duckdb", port: 0, user: "", label: "DuckDB", icon: "duckdb" },
   access: { type: "access", port: 0, user: "", label: "Microsoft Access", icon: "access" },
   mongodb: { type: "mongodb", port: 27017, user: "", label: "MongoDB", icon: "mongodb" },
@@ -280,6 +281,7 @@ const driverProfiles: Record<
     icon: "opengauss",
   },
   gaussdb: { type: "gaussdb", port: 5432, user: "gaussdb", label: "GaussDB", icon: "gaussdb" },
+  kwdb: { type: "kwdb", port: 26257, user: "root", label: "KWDB", icon: "kwdb" },
   kingbase: { type: "kingbase", port: 54321, user: "system", label: "KingBase", icon: "kingbase" },
   highgo: { type: "highgo", port: 5866, user: "highgo", label: "瀚高 HighGo", icon: "highgo" },
   yashandb: { type: "yashandb", port: 1688, user: "sys", label: "崖山 YashanDB", icon: "yashandb" },
@@ -531,6 +533,7 @@ const sshPathSegments = computed(() => {
 function defaultDatabaseForProfile() {
   if (form.value.db_type === "redshift") return "dev";
   if (form.value.db_type === "gaussdb") return "postgres";
+  if (form.value.db_type === "kwdb") return "defaultdb";
   if (selectedType.value === "cockroachdb") return "defaultdb";
   if (form.value.db_type === "highgo") return "highgo";
   if (form.value.db_type === "yashandb") return "yasdb";
@@ -551,6 +554,7 @@ const iconTypeMap: Record<string, string> = {
   mysql: "mysql",
   postgres: "postgres",
   sqlite: "sqlite",
+  rqlite: "rqlite",
   access: "access",
   redis: "redis",
   mongodb: "mongodb",
@@ -578,6 +582,7 @@ const iconTypeMap: Record<string, string> = {
   gbase: "gbase",
   opengauss: "opengauss",
   gaussdb: "gaussdb",
+  kwdb: "kwdb",
   kingbase: "kingbase",
   highgo: "highgo",
   yashandb: "yashandb",
@@ -611,6 +616,7 @@ const dbOptions = [
   { value: "mysql", label: "MySQL" },
   { value: "postgres", label: "PostgreSQL" },
   { value: "sqlite", label: "SQLite" },
+  { value: "rqlite", label: "RQLite" },
   { value: "access", label: "Microsoft Access" },
   { value: "redis", label: "Redis" },
   { value: "mongodb", label: "MongoDB" },
@@ -622,6 +628,7 @@ const dbOptions = [
   { value: "mariadb", label: "MariaDB" },
   { value: "dm", label: "DM (Dameng)" },
   { value: "gaussdb", label: "GaussDB" },
+  { value: "kwdb", label: "KWDB" },
   { value: "tidb", label: "TiDB" },
   { value: "oceanbase", label: "OceanBase" },
   { value: "goldendb", label: "GoldenDB" },
@@ -707,6 +714,7 @@ const tlsCapableDatabaseTypes = new Set<DatabaseType>([
   "postgres",
   "redshift",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "redis",
   "clickhouse",
@@ -739,7 +747,7 @@ const mysqlClientKeyPath = computed({
     form.value.url_params = setUrlParam(next, "ssl-key", value);
   },
 });
-const nativePostgresTlsDatabaseTypes = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "opengauss"]);
+const nativePostgresTlsDatabaseTypes = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "kwdb", "opengauss"]);
 const supportsPostgresTlsOptions = computed(() => nativePostgresTlsDatabaseTypes.has(form.value.db_type));
 const postgresTlsMode = computed({
   get: () => {
@@ -2145,7 +2153,14 @@ function openExternalUrl(url: string) {
                     <div class="grid grid-cols-4 items-center gap-4">
                       <Label class="text-right">{{ t("connection.host") }}</Label>
                       <Input v-model="form.host" class="col-span-2" />
-                      <Input v-model.number="form.port" type="number" class="col-span-1" />
+                      <Input v-model.number="form.port" type="number" class="col-span-1" :disabled="form.ssl" />
+                    </div>
+                    <div class="grid grid-cols-4 items-center gap-4">
+                      <span />
+                      <label class="col-span-3 flex items-center gap-2 text-sm">
+                        <input type="checkbox" v-model="form.ssl" class="mr-0" />
+                        <span>SRV (MongoDB Atlas)</span>
+                      </label>
                     </div>
                     <div class="grid grid-cols-4 items-center gap-4">
                       <Label class="text-right">{{ t("connection.user") }}</Label>
