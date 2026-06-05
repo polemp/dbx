@@ -14,7 +14,6 @@ export const EDITOR_FONT_FAMILY_CSS_VAR = "--dbx-editor-font-family";
 // 在这里修改你喜欢的颜色！
 
 const customThemeColors = {
-  // 背景�?  background: "#1e1e2e", // 编辑器背�?  foreground: "#cdd6f4", // 默认文字颜色
   lineNumber: "#6c7086", // 行号颜色
   lineNumberActive: "#cdd6f4", // 当前行号颜色
   selection: "#313244", // 选中文本背景
@@ -43,8 +42,14 @@ const customThemeColors = {
 function createCustomTheme(
   EditorView: typeof import("@codemirror/view").EditorView,
   colors?: CustomThemeColors,
+  isDark: boolean = true,
 ): Extension {
-  const c = { ...customThemeColors, ...(colors || {}) };
+  // 根据系统主题设置默认背景色和前景色
+  const defaultColors = isDark
+    ? { background: "#1e1e2e", foreground: "#cdd6f4" }
+    : { background: "#fafafa", foreground: "#242424" };
+
+  const c = { ...defaultColors, ...customThemeColors, ...(colors || {}) };
 
   // 映射用户自定义属性名到 CodeMirror 内部属性名
   if (colors) {
@@ -254,7 +259,7 @@ export async function loadEditorTheme(
     case "xcode":
       return (await import("@uiw/codemirror-theme-xcode")).xcodeLight;
     case "custom":
-      return createCustomTheme((await import("@codemirror/view")).EditorView, customColors);
+      return createCustomTheme((await import("@codemirror/view")).EditorView, customColors, appAppearance === "dark");
     default:
       return (await import("@codemirror/theme-one-dark")).oneDark;
   }

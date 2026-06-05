@@ -1204,7 +1204,7 @@ watch(
         <div class="min-w-0 flex-1 overflow-hidden px-1 flex flex-col">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pr-2">
             <section v-if="activeSettingsTab === 'editor'" class="flex flex-col gap-5 py-2">
-              <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+              <div class="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_200px_auto]">
                 <!-- Font Family -->
                 <div class="space-y-2">
                   <Label>{{ t("settings.fontFamily") }}</Label>
@@ -1244,7 +1244,7 @@ watch(
                 <div class="space-y-2">
                   <Label>{{ t("settings.theme") }}</Label>
                   <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
-                    <SelectTrigger>
+                    <SelectTrigger class="w-full">
                       <SelectValue :placeholder="t('settings.selectTheme')" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1263,10 +1263,14 @@ watch(
                       </SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <!-- Custom Theme Button -->
+                <div class="flex items-end">
                   <Button
                     v-if="editTheme === 'custom'"
                     variant="outline"
-                    class="mt-2 h-9 w-auto px-4"
+                    class="h-9 w-auto px-4"
                     @click="showThemeCustomizer = true"
                   >
                     <Settings class="mr-2 h-4 w-4" />

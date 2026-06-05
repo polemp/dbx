@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import type { CustomTheme, CustomThemeColors } from "@/stores/settingsStore";
 import { DEFAULT_CUSTOM_THEME_COLORS } from "@/stores/settingsStore";
 import { Plus, Trash2, Copy, Pencil, ChevronDown } from "@lucide/vue";
+import { useToast } from "@/composables/useToast";
 
 interface Props {
   open: boolean;
@@ -20,6 +21,8 @@ const emit = defineEmits<{
   (e: "update:open", value: boolean): void;
   (e: "save", themes: CustomTheme[], activeId: string): void;
 }>();
+
+const { toast } = useToast();
 
 const localThemes = ref<CustomTheme[]>([]);
 const activeEditId = ref("");
@@ -74,6 +77,8 @@ const colorItems = [
   { key: "operator" as const, label: "运算符", example: "=, >, <>", num: "⑧" },
   { key: "type" as const, label: "类型", example: "INTEGER, TEXT", num: "⑨" },
   { key: "builtin" as const, label: "内置变量", example: "FOUND, SQLERRM", num: "⑩" },
+  { key: "background" as const, label: "背景色", example: "编辑器背景", num: "⑪" },
+  { key: "foreground" as const, label: "前景色", example: "默认文字颜色", num: "⑫" },
 ];
 
 // 基本调色板颜色（类似 Windows 颜色选择器）
@@ -158,7 +163,7 @@ function handleAddTheme() {
 
 function handleDeleteTheme(id: string) {
   if (localThemes.value.length <= 1) {
-    alert("至少保留一个主题");
+    toast("至少保留一个主题", 3000);
     return;
   }
   localThemes.value = localThemes.value.filter((t) => t.id !== id);
@@ -217,7 +222,7 @@ function handleImport() {
       theme.colors = { ...DEFAULT_CUSTOM_THEME_COLORS, ...parsed };
     }
   } catch (e) {
-    alert("JSON格式错误，请检查");
+    toast("JSON格式错误，请检查", 3000);
   }
 }
 </script>

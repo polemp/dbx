@@ -203,6 +203,8 @@ export interface CustomThemeColors {
   operator: string;
   type: string;
   builtin: string;
+  background?: string;
+  foreground?: string;
 }
 
 export const DEFAULT_CUSTOM_THEME_COLORS: CustomThemeColors = {
@@ -225,7 +227,7 @@ export interface CustomTheme {
 }
 
 export const DEFAULT_CUSTOM_THEMES: CustomTheme[] = [
-  { id: "default", name: "默认", colors: { ...DEFAULT_CUSTOM_THEME_COLORS } },
+  { id: "default", name: "自定义", colors: { ...DEFAULT_CUSTOM_THEME_COLORS } },
 ];
 
 export interface EditorSettings {
@@ -432,21 +434,24 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
       ...DEFAULT_CUSTOM_THEME_COLORS,
       ...settings.customThemeColors,
     },
-    customThemes:
-      Array.isArray(settings.customThemes) && settings.customThemes.length > 0
-        ? settings.customThemes
-        : [
-            ...(settings.customThemeColors
-              ? [
-                  {
-                    id: "migrated",
-                    name: "已迁移",
-                    colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
-                  },
-                ]
-              : []),
-            ...DEFAULT_CUSTOM_THEMES,
-          ],
+    customThemes: (() => {
+      if (Array.isArray(settings.customThemes) && settings.customThemes.length > 0) {
+        // 自动重命名"默认"为"自定义"
+        return settings.customThemes.map((theme) => (theme.name === "默认" ? { ...theme, name: "自定义" } : theme));
+      }
+      return [
+        ...(settings.customThemeColors
+          ? [
+              {
+                id: "migrated",
+                name: "已迁移",
+                colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
+              },
+            ]
+          : []),
+        ...DEFAULT_CUSTOM_THEMES,
+      ];
+    })(),
     activeCustomThemeId: settings.activeCustomThemeId ?? "default",
     executeMode: settings.executeMode ?? DEFAULT_EDITOR_SETTINGS.executeMode,
     wordWrap: settings.wordWrap ?? DEFAULT_EDITOR_SETTINGS.wordWrap,
