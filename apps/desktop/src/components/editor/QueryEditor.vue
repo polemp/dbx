@@ -1426,18 +1426,35 @@ onMounted(async () => {
     builtin: [baseDialect.spec.builtin || "", plpgsqlBuiltin].filter(Boolean).join(" ") || undefined,
   });
 
-  function getCurrentCustomThemeColors() {
-    const settings = settingsStore.editorSettings;
-    if (settings.theme !== "custom") return settings.customThemeColors;
-    // 优先使用已同步的 customThemeColors，避免 customThemes 查找问题
-    return settings.customThemeColors;
+  function getEditorSettingsFromStorage(): EditorSettings {
+    try {
+      const raw = localStorage.getItem("dbx-editor-settings");
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<EditorSettings>;
+        return {
+          ...settingsStore.editorSettings,
+          ...parsed,
+          customThemeColors: parsed.customThemeColors ?? settingsStore.editorSettings.customThemeColors,
+          customThemes: parsed.customThemes ?? settingsStore.editorSettings.customThemes,
+          activeCustomThemeId: parsed.activeCustomThemeId ?? settingsStore.editorSettings.activeCustomThemeId,
+        } as EditorSettings;
+      }
+    } catch {
+      /* ignore */
+    }
+    return settingsStore.editorSettings;
   }
 
-  const theme = await loadEditorTheme(
-    settingsStore.editorSettings.theme,
-    editorThemeAppearance(),
-    getCurrentCustomThemeColors(),
-  );
+  function getCurrentCustomThemeColors() {
+    const settings = getEditorSettingsFromStorage();
+    if (settings.theme !== "custom") return settings.customThemeColors;
+    const activeTheme =
+      settings.customThemes?.find((t) => t.id === settings.activeCustomThemeId) || settings.customThemes?.[0];
+    return activeTheme?.colors ?? settings.customThemeColors;
+  }
+
+  const initialSettings = getEditorSettingsFromStorage();
+  const theme = await loadEditorTheme(initialSettings.theme, editorThemeAppearance(), getCurrentCustomThemeColors());
 
   const activeLineHighlighter = ViewPlugin.fromClass(
     class {
@@ -1520,7 +1537,7 @@ onMounted(async () => {
         ]),
       ),
       runKeymapComp.of(runKeymapExtension(keymap)),
-      wordWrapComp.of(props.forceWordWrap || ss.wordWrap ? EditorView.lineWrapping : []),
+      wordWrapComp.of(props.forceWordWrap || initialSettings.wordWrap ? EditorView.lineWrapping : []),
       readOnlyComp.of([EditorState.readOnly.of(!!props.readOnly), EditorView.editable.of(!props.readOnly)]),
       rectangularSelection({ eventFilter: (e: MouseEvent) => e.altKey || e.button === 1 }),
       EditorView.updateListener.of((update) => {
@@ -1542,7 +1559,7 @@ onMounted(async () => {
         }
       }),
       fontThemeComp.of(
-        editorFontTheme(EditorView, liveFontSize.value, ss.fontFamily, {
+        editorFontTheme(EditorView, liveFontSize.value, initialSettings.fontFamily, {
           fixedHeight: true,
           scrollable: true,
         }),
@@ -1701,7 +1718,7 @@ onMounted(async () => {
 
   view.value = new EditorView({ state, parent: editorRef.value });
   syncContextMenuState(view.value);
-  syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
+  syncEditorFontCssVars(liveFontSize.value, initialSettings.fontFamily);
   registerTableReferenceDropListener();
 
   cachedTables = [];
@@ -1711,8 +1728,8 @@ onMounted(async () => {
   // Ensure theme is applied with the latest settings after mount
   void nextTick(async () => {
     if (!view.value || !codeMirrorTheme) return;
-    const settings = settingsStore.editorSettings;
-    const themeColors = settings.theme === "custom" ? settings.customThemeColors : settings.customThemeColors;
+    const settings = getEditorSettingsFromStorage();
+    const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
     const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [codeMirrorTheme.reconfigure(themeExt)],
@@ -1783,9 +1800,10 @@ watch(
     if (!isGestureZooming.value && !zoomCommitScheduler.hasPendingCommit() && liveFontSize.value !== ss.fontSize) {
       liveFontSize.value = ss.fontSize;
     }
-    syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
-    const themeColors = ss.theme === "custom" ? ss.customThemeColors : ss.customThemeColors;
-    const themeExt = await loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors);
+    syncEditorFontCssVars(liveFontSize.value, initialSettings.fontFamily);
+    const settings = getEditorSettingsFromStorage();
+    const themeColors = settings.theme === "custom" ? getCurrentCustomThemeColors() : settings.customThemeColors;
+    const themeExt = await loadEditorTheme(settings.theme, editorThemeAppearance(), themeColors);
     view.value.dispatch({
       effects: [
         codeMirrorTheme.reconfigure(themeExt),
