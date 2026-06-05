@@ -115,6 +115,7 @@ function createCustomTheme(
     { tag: tags.blockComment, color: c.comment, fontStyle: "italic" },
     { tag: tags.typeName, color: c.type },
     { tag: tags.typeOperator, color: c.type },
+    { tag: tags.name, color: c.variable }, // ← 添加：普通标识符（字段名、表名等）
     { tag: tags.variableName, color: c.variable },
     { tag: tags.definition(tags.variableName), color: c.variable },
     { tag: tags.function(tags.variableName), color: c.function },

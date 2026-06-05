@@ -1080,16 +1080,24 @@ async function aiTestConn() {
 const previewRef = ref<HTMLDivElement>();
 const previewView = shallowRef<EditorViewType | null>(null);
 
+function getPreviewCustomThemeColors(): CustomThemeColors | undefined {
+  if (editTheme.value !== "custom") return undefined;
+  const activeTheme = editCustomThemes.value.find((t) => t.id === editActiveCustomThemeId.value);
+  return activeTheme?.colors;
+}
+
 const previewSettings = computed<{
   fontFamily: string;
   fontSize: number;
   theme: EditorTheme;
   appAppearance: AppThemeAppearance;
+  customColors?: CustomThemeColors;
 }>(() => ({
   fontFamily: editFontFamily.value,
   fontSize: editFontSize.value,
   theme: editTheme.value,
   appAppearance: isDark.value ? "dark" : "light",
+  customColors: getPreviewCustomThemeColors(),
 }));
 
 const previewSql = `SELECT u.id, u.name
@@ -1101,11 +1109,11 @@ let themeComp: import("@codemirror/state").Compartment | null = null;
 let editorViewModule: typeof import("@codemirror/view") | null = null;
 
 watch(
-  previewSettings,
-  async (ss) => {
+  [previewSettings, editCustomThemes, editActiveCustomThemeId],
+  async ([ss]) => {
     if (!previewView.value || !fontThemeComp || !themeComp || !editorViewModule) return;
 
-    const themeExt = await loadEditorTheme(ss.theme, ss.appAppearance);
+    const themeExt = await loadEditorTheme(ss.theme, ss.appAppearance, ss.customColors);
     previewView.value.dispatch({
       effects: [
         themeComp.reconfigure(themeExt),
@@ -1146,7 +1154,7 @@ watch(previewRef, async (el) => {
   themeComp = new Compartment();
 
   const ss = previewSettings.value;
-  const themeExt = await loadEditorTheme(ss.theme, ss.appAppearance);
+  const themeExt = await loadEditorTheme(ss.theme, ss.appAppearance, ss.customColors);
 
   const state = EditorState.create({
     doc: previewSql,

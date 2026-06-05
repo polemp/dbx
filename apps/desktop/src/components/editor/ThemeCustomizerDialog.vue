@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { CustomTheme, CustomThemeColors } from "@/stores/settingsStore";
 import { DEFAULT_CUSTOM_THEME_COLORS } from "@/stores/settingsStore";
-import { Plus, Trash2, Copy, Pencil, ChevronDown } from "@lucide/vue";
+import { Plus, Trash2, Copy, Pencil, ChevronDown, Palette } from "@lucide/vue";
 import { useToast } from "@/composables/useToast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Props {
   open: boolean;
@@ -80,6 +81,214 @@ const colorItems = [
   { key: "background" as const, label: "背景色", example: "编辑器背景", num: "⑪" },
   { key: "foreground" as const, label: "前景色", example: "默认文字颜色", num: "⑫" },
 ];
+
+// 预设配色模板（包含所有内置主题配色）
+const presetThemes = [
+  {
+    name: "默认配色",
+    colors: { ...DEFAULT_CUSTOM_THEME_COLORS },
+  },
+  {
+    name: "One Dark",
+    colors: {
+      keyword: "#c678dd",
+      field: "#e06c75",
+      function: "#61afef",
+      string: "#98c379",
+      number: "#d19a66",
+      comment: "#5c6370",
+      table: "#98c379",
+      operator: "#56b6c2",
+      type: "#e5c07b",
+      builtin: "#61afef",
+      background: "#282c34",
+      foreground: "#abb2bf",
+    },
+  },
+  {
+    name: "VS Code Dark+",
+    colors: {
+      keyword: "#569cd6",
+      field: "#9cdcfe",
+      function: "#dcdcaa",
+      string: "#ce9178",
+      number: "#b5cea8",
+      comment: "#6a9955",
+      table: "#ce9178",
+      operator: "#d4d4d4",
+      type: "#4ec9b0",
+      builtin: "#dcdcaa",
+      background: "#1e1e1e",
+      foreground: "#9cdcfe",
+    },
+  },
+  {
+    name: "Nord",
+    colors: {
+      keyword: "#5e81ac",
+      field: "#88c0d0",
+      function: "#8fbcbb",
+      string: "#a3be8c",
+      number: "#b48ead",
+      comment: "#4c566a",
+      table: "#a3be8c",
+      operator: "#a3be8c",
+      type: "#ebcb8b",
+      builtin: "#8fbcbb",
+      background: "#2e3440",
+      foreground: "#d8dee9",
+    },
+  },
+  {
+    name: "Okaidia",
+    colors: {
+      keyword: "#f92672",
+      field: "#a6e22e",
+      function: "#fd971f",
+      string: "#e6db74",
+      number: "#ae81ff",
+      comment: "#8292a2",
+      table: "#e6db74",
+      operator: "#f92672",
+      type: "#66d9ef",
+      builtin: "#fd971f",
+      background: "#272822",
+      foreground: "#f8f8f2",
+    },
+  },
+  {
+    name: "Material",
+    colors: {
+      keyword: "#cf6edf",
+      field: "#56c8d8",
+      function: "#56c8d8",
+      string: "#a3be8c",
+      number: "#ffad42",
+      comment: "#808080",
+      table: "#a3be8c",
+      operator: "#cf6edf",
+      type: "#ffad42",
+      builtin: "#56c8d8",
+      background: "#2e3235",
+      foreground: "#bdbdbd",
+    },
+  },
+  {
+    name: "Dracula",
+    colors: {
+      keyword: "#ff79c6",
+      field: "#8be9fd",
+      function: "#50fa7b",
+      string: "#f1fa8c",
+      number: "#bd93f9",
+      comment: "#6272a4",
+      table: "#f1fa8c",
+      operator: "#ff79c6",
+      type: "#8be9fd",
+      builtin: "#50fa7b",
+      background: "#282a36",
+      foreground: "#f8f8f2",
+    },
+  },
+  {
+    name: "Solarized Dark",
+    colors: {
+      keyword: "#cb4b16",
+      field: "#268bd2",
+      function: "#b58900",
+      string: "#2aa198",
+      number: "#d33682",
+      comment: "#586e75",
+      table: "#2aa198",
+      operator: "#cb4b16",
+      type: "#859900",
+      builtin: "#b58900",
+      background: "#002b36",
+      foreground: "#839496",
+    },
+  },
+  {
+    name: "VS Code Light+",
+    colors: {
+      keyword: "#0000ff",
+      field: "#001080",
+      function: "#795e26",
+      string: "#a31515",
+      number: "#098658",
+      comment: "#008000",
+      table: "#a31515",
+      operator: "#000000",
+      type: "#267f99",
+      builtin: "#795e26",
+      background: "#ffffff",
+      foreground: "#000000",
+    },
+  },
+  {
+    name: "Duotone Light",
+    colors: {
+      keyword: "#6e4cbd",
+      field: "#1a1a1a",
+      function: "#6e4cbd",
+      string: "#6e4cbd",
+      number: "#6e4cbd",
+      comment: "#a0a0a0",
+      table: "#6e4cbd",
+      operator: "#1a1a1a",
+      type: "#6e4cbd",
+      builtin: "#6e4cbd",
+      background: "#faf8f5",
+      foreground: "#1a1a1a",
+    },
+  },
+  {
+    name: "Duotone Dark",
+    colors: {
+      keyword: "#9375f5",
+      field: "#ddd",
+      function: "#9375f5",
+      string: "#9375f5",
+      number: "#9375f5",
+      comment: "#777",
+      table: "#9375f5",
+      operator: "#ddd",
+      type: "#9375f5",
+      builtin: "#9375f5",
+      background: "#2a2734",
+      foreground: "#ddd",
+    },
+  },
+  {
+    name: "Xcode",
+    colors: {
+      keyword: "#ad3da4",
+      field: "#5c2699",
+      function: "#3d1c77",
+      string: "#d12f1b",
+      number: "#272ad8",
+      comment: "#9ba2aa",
+      table: "#d12f1b",
+      operator: "#000000",
+      type: "#234d97",
+      builtin: "#3d1c77",
+      background: "#ffffff",
+      foreground: "#000000",
+    },
+  },
+];
+
+const selectedPreset = ref("");
+
+function applyPreset() {
+  const preset = presetThemes.find((p) => p.name === selectedPreset.value);
+  if (!preset) return;
+
+  const theme = localThemes.value.find((t) => t.id === activeEditId.value);
+  if (theme) {
+    theme.colors = { ...DEFAULT_CUSTOM_THEME_COLORS, ...preset.colors };
+    toast(`已应用「${preset.name}」配色方案`, 2000);
+  }
+}
 
 // 基本调色板颜色（类似 Windows 颜色选择器）
 const basicColors = [
@@ -298,6 +507,26 @@ function handleImport() {
                 <div class="mt-2 text-lg" :style="{ color: localColors.comment }">
                   <sup class="text-xl">⑥</sup> -- 查询示例
                 </div>
+              </div>
+
+              <!-- 预设配色方案 -->
+              <div class="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
+                <Palette class="h-4 w-4 text-muted-foreground shrink-0" />
+                <span class="text-sm text-muted-foreground shrink-0">预设配色:</span>
+                <Select v-model="selectedPreset" class="flex-1">
+                  <SelectTrigger class="h-8 text-sm">
+                    <SelectValue placeholder="选择预设配色方案" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="preset in presetThemes" :key="preset.name" :value="preset.name">
+                      {{ preset.name }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" size="sm" class="h-8 shrink-0" @click="applyPreset">
+                  <Copy class="mr-1 h-3 w-3" />
+                  应用
+                </Button>
               </div>
 
               <!-- 颜色配置列表 -->
