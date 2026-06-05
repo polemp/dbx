@@ -46,6 +46,18 @@ function createCustomTheme(
 ): Extension {
   const c = { ...customThemeColors, ...(colors || {}) };
 
+  // 映射用户自定义属性名到 CodeMirror 内部属性名
+  if (colors) {
+    if (colors.field) {
+      c.variable = colors.field;
+      c.property = colors.field;
+    }
+    if (colors.table) {
+      // 表名通常被识别为 propertyName，如果单独设置了表名颜色则覆盖
+      c.property = colors.table;
+    }
+  }
+
   const theme = EditorView.theme(
     {
       "&": {
