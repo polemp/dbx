@@ -1217,7 +1217,7 @@ watch(
         <div class="min-w-0 flex-1 overflow-hidden px-1 flex flex-col">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pr-2">
             <section v-if="activeSettingsTab === 'editor'" class="flex flex-col gap-5 py-2">
-              <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(160px,200px)_auto]">
+              <div class="grid gap-4 md:grid-cols-[1fr_auto]">
                 <!-- Font Family -->
                 <div class="space-y-2 min-w-0">
                   <Label>{{ t("settings.fontFamily") }}</Label>
@@ -1253,33 +1253,31 @@ watch(
                   </SearchableSelect>
                 </div>
 
-                <!-- Theme -->
-                <div class="space-y-2 min-w-0">
-                  <Label>{{ t("settings.theme") }}</Label>
-                  <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
-                    <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="t('settings.selectTheme')" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="theme in themeSelectOptions" :key="theme.value" :value="theme.value">
-                        <div class="flex items-center gap-2">
-                          <span
-                            class="h-3 w-3 rounded-full border"
-                            :class="
-                              theme.dark
-                                ? 'bg-foreground border-foreground/20'
-                                : 'bg-muted-foreground/30 border-muted-foreground/40'
-                            "
-                          />
-                          {{ theme.label }}
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <!-- Custom Theme Button -->
-                <div class="flex items-end">
+                <!-- Theme + Custom Theme Button -->
+                <div class="flex gap-2 items-end">
+                  <div class="space-y-2">
+                    <Label>{{ t("settings.theme") }}</Label>
+                    <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
+                      <SelectTrigger class="min-w-[80px] max-w-[200px]">
+                        <SelectValue :placeholder="t('settings.selectTheme')" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="theme in themeSelectOptions" :key="theme.value" :value="theme.value">
+                          <div class="flex items-center gap-2">
+                            <span
+                              class="h-3 w-3 rounded-full border"
+                              :class="
+                                theme.dark
+                                  ? 'bg-foreground border-foreground/20'
+                                  : 'bg-muted-foreground/30 border-muted-foreground/40'
+                              "
+                            />
+                            {{ theme.label }}
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     v-if="editTheme === 'custom'"
                     variant="outline"
