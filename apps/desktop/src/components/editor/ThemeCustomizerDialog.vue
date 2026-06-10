@@ -753,22 +753,28 @@ function handleImport() {
                     </div>
                   </div>
                 </div>
-                <div class="grid grid-cols-2 divide-x divide-border pt-1">
-                  <div class="pr-2 space-y-0.5">
-                    <div
-                      :style="{
-                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
-                      }"
-                    >
-                      <span class="font-mono text-xs">DROP TABLE old_users;</span>
-                    </div>
+                <!-- Source-only row: source has it, target doesn't (will be created) -->
+                <div class="pt-2 space-y-0.5">
+                  <div class="text-xs text-muted-foreground">{{ t("diff.sourceDdl") }} — {{ t("diff.added") }}</div>
+                  <div
+                    class="font-mono text-xs px-1 py-0.5"
+                    :style="{
+                      backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                    }"
+                  >
+                    DROP TABLE old_users;
                   </div>
-                  <div class="pl-2 space-y-0.5">
-                    <div
-                      :style="{ backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha) }"
-                    >
-                      <span class="font-mono text-xs">CREATE TABLE new_orders (id INT);</span>
-                    </div>
+                </div>
+                <!-- Target-only row: target has it, source doesn't (will be dropped) -->
+                <div class="pt-2 space-y-0.5">
+                  <div class="text-xs text-muted-foreground">{{ t("diff.targetDdl") }} — {{ t("diff.removed") }}</div>
+                  <div
+                    class="font-mono text-xs px-1 py-0.5"
+                    :style="{
+                      backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
+                    }"
+                  >
+                    CREATE TABLE new_orders (id INT);
                   </div>
                 </div>
               </div>
