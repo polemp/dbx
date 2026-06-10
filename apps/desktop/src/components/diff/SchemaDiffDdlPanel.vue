@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
+import { diffLines } from "diff";
 import { Button } from "@/components/ui/button";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/composables/useToast";
@@ -45,7 +46,6 @@ const isSyncingScroll = ref(false);
 function syncScroll(from: "source" | "target") {
   if (isSyncingScroll.value) return;
   isSyncingScroll.value = true;
-
   const source = sourceDdlRef.value;
   const target = targetDdlRef.value;
   if (source && target) {
@@ -55,91 +55,45 @@ function syncScroll(from: "source" | "target") {
       source.scrollTop = target.scrollTop;
     }
   }
-
   isSyncingScroll.value = false;
 }
 
-// Simple diff algorithm for DDL comparison
-interface DiffLine {
-  type: "same" | "added" | "removed" | "modified";
-  sourceLine: string;
-  targetLine: string;
+// ---------- Diff viewer ----------
+
+interface DiffRow {
+  type: "equal" | "insert" | "delete" | "modify";
+  leftLine: string;
+  rightLine: string;
+  leftLineNum: number | null;
+  rightLineNum: number | null;
   charDiffs?: { source: string; target: string }[];
 }
 
-function computeLineDiffs(sourceLines: string[], targetLines: string[]): DiffLine[] {
-  const result: DiffLine[] = [];
-  let sIdx = 0;
-  let tIdx = 0;
+interface MergedPatch {
+  type: "equal" | "insert" | "delete" | "modify";
+  leftValue: string;
+  rightValue: string;
+}
 
-  while (sIdx < sourceLines.length || tIdx < targetLines.length) {
-    const sLine = sourceLines[sIdx] || "";
-    const tLine = targetLines[tIdx] || "";
+function splitLines(value: string): string[] {
+  const lines = value.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
 
-    if (sIdx >= sourceLines.length) {
-      for (let i = tIdx; i < targetLines.length; i++) {
-        result.push({ type: "added", sourceLine: "", targetLine: targetLines[i] });
-      }
-      break;
-    }
-
-    if (tIdx >= targetLines.length) {
-      for (let i = sIdx; i < sourceLines.length; i++) {
-        result.push({ type: "removed", sourceLine: sourceLines[i], targetLine: "" });
-      }
-      break;
-    }
-
-    if (sLine === tLine) {
-      result.push({ type: "same", sourceLine: sLine, targetLine: tLine });
-      sIdx++;
-      tIdx++;
-      continue;
-    }
-
-    const similarity = computeSimilarity(sLine, tLine);
-    if (similarity > 0.5) {
-      const charDiffs = computeCharDiffs(sLine, tLine);
-      result.push({ type: "modified", sourceLine: sLine, targetLine: tLine, charDiffs });
-      sIdx++;
-      tIdx++;
-      continue;
-    }
-
-    let foundMatch = false;
-    for (let lookAhead = 1; lookAhead <= 3 && sIdx + lookAhead < sourceLines.length; lookAhead++) {
-      if (sourceLines[sIdx + lookAhead] === tLine) {
-        for (let i = 0; i < lookAhead; i++) {
-          result.push({ type: "removed", sourceLine: sourceLines[sIdx + i], targetLine: "" });
-        }
-        sIdx += lookAhead;
-        foundMatch = true;
-        break;
-      }
-    }
-
-    if (!foundMatch) {
-      for (let lookAhead = 1; lookAhead <= 3 && tIdx + lookAhead < targetLines.length; lookAhead++) {
-        if (targetLines[tIdx + lookAhead] === sLine) {
-          for (let i = 0; i < lookAhead; i++) {
-            result.push({ type: "added", sourceLine: "", targetLine: targetLines[tIdx + i] });
-          }
-          tIdx += lookAhead;
-          foundMatch = true;
-          break;
-        }
-      }
-    }
-
-    if (!foundMatch) {
-      result.push({ type: "removed", sourceLine: sLine, targetLine: "" });
-      result.push({ type: "added", sourceLine: "", targetLine: tLine });
-      sIdx++;
-      tIdx++;
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      matrix[i][j] =
+        b.charAt(i - 1) === a.charAt(j - 1)
+          ? matrix[i - 1][j - 1]
+          : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
     }
   }
-
-  return result;
+  return matrix[b.length][a.length];
 }
 
 function computeSimilarity(a: string, b: string): number {
@@ -150,31 +104,10 @@ function computeSimilarity(a: string, b: string): number {
   return (longer.length - distance) / longer.length;
 }
 
-function levenshteinDistance(a: string, b: string): number {
-  const matrix: number[][] = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-}
-
 function computeCharDiffs(source: string, target: string): { source: string; target: string }[] {
   const result: { source: string; target: string }[] = [];
   let sIdx = 0;
   let tIdx = 0;
-
   while (sIdx < source.length || tIdx < target.length) {
     if (sIdx >= source.length) {
       result.push({ source: "", target: target.substring(tIdx) });
@@ -184,7 +117,6 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
       result.push({ source: source.substring(sIdx), target: "" });
       break;
     }
-
     if (source[sIdx] === target[tIdx]) {
       let matchLen = 0;
       while (
@@ -215,12 +147,10 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
           break;
         }
       }
-
       if (sMatch === -1) {
         sMatch = Math.min(1, source.length - sIdx);
         tMatch = Math.min(1, target.length - tIdx);
       }
-
       result.push({
         source: source.substring(sIdx, sIdx + (sMatch > 0 ? sMatch : 1)),
         target: target.substring(tIdx, tIdx + (tMatch > 0 ? tMatch : 1)),
@@ -229,18 +159,96 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
       tIdx += tMatch > 0 ? tMatch : 1;
     }
   }
-
   return result;
 }
 
-const ddlMode = computed(() => props.selectedObject?.operationType || "none");
+function mergePatches(patches: Array<{ value: string; added?: boolean; removed?: boolean }>): MergedPatch[] {
+  const result: MergedPatch[] = [];
+  for (let i = 0; i < patches.length; i++) {
+    const curr = patches[i];
+    const next = patches[i + 1];
+    if (curr.removed && next?.added) {
+      const similarity = computeSimilarity(curr.value, next.value);
+      if (similarity > 0.3) {
+        result.push({ type: "modify", leftValue: curr.value, rightValue: next.value });
+        i++;
+        continue;
+      }
+    }
+    if (!curr.added && !curr.removed) {
+      result.push({ type: "equal", leftValue: curr.value, rightValue: curr.value });
+    } else if (curr.removed) {
+      result.push({ type: "delete", leftValue: curr.value, rightValue: "" });
+    } else if (curr.added) {
+      result.push({ type: "insert", leftValue: "", rightValue: curr.value });
+    }
+  }
+  return result;
+}
 
-const sourceLines = computed(() => (props.selectedObject?.sourceDdl || "").split("\n"));
-const targetLines = computed(() => (props.selectedObject?.targetDdl || "").split("\n"));
+function computeDiffRows(sourceDdl: string, targetDdl: string): DiffRow[] {
+  const patches = diffLines(sourceDdl, targetDdl, { newlineIsToken: false });
+  const merged = mergePatches(patches);
+  const rows: DiffRow[] = [];
+  let leftLineNum = 1;
+  let rightLineNum = 1;
 
-const ddlDiffs = computed(() => {
+  for (const patch of merged) {
+    if (patch.type === "equal") {
+      for (const line of splitLines(patch.leftValue)) {
+        rows.push({
+          type: "equal",
+          leftLine: line,
+          rightLine: line,
+          leftLineNum: leftLineNum++,
+          rightLineNum: rightLineNum++,
+        });
+      }
+    } else if (patch.type === "delete") {
+      for (const line of splitLines(patch.leftValue)) {
+        rows.push({
+          type: "delete",
+          leftLine: line,
+          rightLine: "",
+          leftLineNum: leftLineNum++,
+          rightLineNum: null,
+        });
+      }
+    } else if (patch.type === "insert") {
+      for (const line of splitLines(patch.rightValue)) {
+        rows.push({
+          type: "insert",
+          leftLine: "",
+          rightLine: line,
+          leftLineNum: null,
+          rightLineNum: rightLineNum++,
+        });
+      }
+    } else if (patch.type === "modify") {
+      const leftLines = splitLines(patch.leftValue);
+      const rightLines = splitLines(patch.rightValue);
+      const maxLines = Math.max(leftLines.length, rightLines.length);
+      for (let i = 0; i < maxLines; i++) {
+        const leftLine = leftLines[i] || "";
+        const rightLine = rightLines[i] || "";
+        rows.push({
+          type: "modify",
+          leftLine,
+          rightLine,
+          leftLineNum: leftLine ? leftLineNum++ : null,
+          rightLineNum: rightLine ? rightLineNum++ : null,
+          charDiffs: computeCharDiffs(leftLine, rightLine),
+        });
+      }
+    }
+  }
+
+  return rows;
+}
+
+const diffRows = computed(() => {
   if (!props.selectedObject?.sourceDdl && !props.selectedObject?.targetDdl) return [];
-  return computeLineDiffs(sourceLines.value, targetLines.value);
+  return computeDiffRows(props.selectedObject?.sourceDdl || "", props.selectedObject?.targetDdl || "");
 });
 
 function copyDeploySql() {
@@ -259,35 +267,25 @@ function copyDeploySqlAll() {
     <!-- Tabs -->
     <div class="flex border-b shrink-0">
       <button
-        class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors"
-        :class="
-          activeTab === 'ddl'
-            ? 'bg-primary/10 text-primary border-b-2 border-primary'
-            : 'text-muted-foreground hover:text-foreground'
-        "
+        class="px-3 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors"
+        :class="activeTab === 'ddl' ? 'bg-primary/10 text-primary border-b-2 border-primary' : 'hover:bg-muted/50'"
         @click="activeTab = 'ddl'"
       >
         <FileCode class="w-3.5 h-3.5" />
         {{ t("diff.ddlCompare") }}
       </button>
       <button
-        class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors"
-        :class="
-          activeTab === 'script'
-            ? 'bg-primary/10 text-primary border-b-2 border-primary'
-            : 'text-muted-foreground hover:text-foreground'
-        "
+        class="px-3 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors"
+        :class="activeTab === 'script' ? 'bg-primary/10 text-primary border-b-2 border-primary' : 'hover:bg-muted/50'"
         @click="activeTab = 'script'"
       >
         <ScrollText class="w-3.5 h-3.5" />
         {{ t("diff.deployScript") }}
       </button>
       <button
-        class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors"
+        class="px-3 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors"
         :class="
-          activeTab === 'scriptAll'
-            ? 'bg-primary/10 text-primary border-b-2 border-primary'
-            : 'text-muted-foreground hover:text-foreground'
+          activeTab === 'scriptAll' ? 'bg-primary/10 text-primary border-b-2 border-primary' : 'hover:bg-muted/50'
         "
         @click="activeTab = 'scriptAll'"
       >
@@ -298,114 +296,57 @@ function copyDeploySqlAll() {
 
     <!-- DDL Compare -->
     <div v-if="activeTab === 'ddl'" class="flex-1 overflow-hidden relative">
-      <!-- No selection -->
+      <!-- 未选择对象 -->
       <div
         v-if="!selectedObject"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
       >
         {{ t("diff.selectObjectToCompare") }}
       </div>
-
-      <!-- No DDL available -->
+      <!-- 无DDL数据 -->
       <div
         v-else-if="!selectedObject.sourceDdl && !selectedObject.targetDdl"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
       >
         {{ t("diff.noDdlAvailable") }}
       </div>
-
-      <!-- Create mode: source has it, target doesn't -->
-      <div v-else-if="ddlMode === 'create'" class="absolute inset-0 flex">
-        <div class="flex-1 overflow-y-auto">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.sourceDdl") }}
-          </div>
-          <div class="font-mono text-xs leading-relaxed">
-            <div
-              v-for="(line, idx) in sourceLines"
-              :key="idx"
-              class="px-3 py-0.5 min-h-[20px]"
-              :style="{ backgroundColor: toRgba(ddlColors.removedRowBg, ddlColors.removedRowBgAlpha) }"
-            >
-              {{ line }}
-            </div>
-          </div>
-        </div>
-        <div class="flex-1 overflow-y-auto">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.targetDdl") }}
-          </div>
-          <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {{ t("diff.objectNotExistsInTarget") }}
-          </div>
-        </div>
-      </div>
-
-      <!-- Delete mode: target has it, source doesn't -->
-      <div v-else-if="ddlMode === 'delete'" class="absolute inset-0 flex">
-        <div class="flex-1 overflow-y-auto">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.sourceDdl") }}
-          </div>
-          <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {{ t("diff.objectNotExistsInSource") }}
-          </div>
-        </div>
-        <div class="flex-1 overflow-y-auto">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.targetDdl") }}
-          </div>
-          <div class="font-mono text-xs leading-relaxed">
-            <div
-              v-for="(line, idx) in targetLines"
-              :key="idx"
-              class="px-3 py-0.5 min-h-[20px]"
-              :style="{ backgroundColor: toRgba(ddlColors.addedRowBg, ddlColors.addedRowBgAlpha) }"
-            >
-              {{ line }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modify/None mode: side-by-side diff -->
-      <div v-else class="absolute inset-0 flex">
+      <!-- Diff View -->
+      <div v-else class="absolute inset-0 flex font-mono text-xs leading-relaxed">
         <!-- Source DDL -->
         <div ref="sourceDdlRef" class="flex-1 overflow-y-auto" @scroll="syncScroll('source')">
           <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
             {{ t("diff.sourceDdl") }}
           </div>
-          <div class="font-mono text-xs leading-relaxed">
-            <div
-              v-for="(diff, idx) in ddlDiffs"
-              :key="`src-${idx}`"
-              class="px-3 py-0.5 min-h-[20px]"
-              :class="{
-                'bg-muted/30': diff.type === 'added',
-              }"
-              :style="
-                diff.type === 'removed'
-                  ? { backgroundColor: toRgba(ddlColors.removedRowBg, ddlColors.removedRowBgAlpha) }
-                  : diff.type === 'modified'
-                    ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
-                    : undefined
-              "
-            >
-              <span v-if="diff.type === 'added'" class="text-muted-foreground">&nbsp;</span>
-              <template v-else-if="diff.type === 'modified' && diff.charDiffs">
+          <div
+            v-for="(row, idx) in diffRows"
+            :key="`src-${idx}`"
+            class="flex"
+            :style="
+              row.type === 'delete'
+                ? { backgroundColor: toRgba(ddlColors.removedRowBg, ddlColors.removedRowBgAlpha) }
+                : row.type === 'modify'
+                  ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
+                  : undefined
+            "
+          >
+            <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+              {{ row.leftLineNum ?? "" }}
+            </span>
+            <span class="flex-1 px-1 whitespace-pre">
+              <template v-if="row.type === 'modify' && row.charDiffs">
                 <span
-                  v-for="(charDiff, cIdx) in diff.charDiffs"
-                  :key="cIdx"
+                  v-for="(cd, ci) in row.charDiffs"
+                  :key="ci"
                   :style="
-                    charDiff.source !== charDiff.target
+                    cd.source !== cd.target
                       ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
                       : undefined
                   "
-                  >{{ charDiff.source }}</span
+                  >{{ cd.source }}</span
                 >
               </template>
-              <span v-else>{{ diff.sourceLine }}</span>
-            </div>
+              <span v-else>{{ row.leftLine || "\u00A0" }}</span>
+            </span>
           </div>
         </div>
 
@@ -414,73 +355,78 @@ function copyDeploySqlAll() {
           <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
             {{ t("diff.targetDdl") }}
           </div>
-          <div class="font-mono text-xs leading-relaxed">
-            <div
-              v-for="(diff, idx) in ddlDiffs"
-              :key="`tgt-${idx}`"
-              class="px-3 py-0.5 min-h-[20px]"
-              :class="{
-                'bg-muted/30': diff.type === 'removed',
-              }"
-              :style="
-                diff.type === 'added'
-                  ? { backgroundColor: toRgba(ddlColors.addedRowBg, ddlColors.addedRowBgAlpha) }
-                  : diff.type === 'modified'
-                    ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
-                    : undefined
-              "
-            >
-              <span v-if="diff.type === 'removed'" class="text-muted-foreground">&nbsp;</span>
-              <template v-else-if="diff.type === 'modified' && diff.charDiffs">
+          <div
+            v-for="(row, idx) in diffRows"
+            :key="`tgt-${idx}`"
+            class="flex"
+            :style="
+              row.type === 'insert'
+                ? { backgroundColor: toRgba(ddlColors.addedRowBg, ddlColors.addedRowBgAlpha) }
+                : row.type === 'modify'
+                  ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
+                  : undefined
+            "
+          >
+            <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+              {{ row.rightLineNum ?? "" }}
+            </span>
+            <span class="flex-1 px-1 whitespace-pre">
+              <template v-if="row.type === 'modify' && row.charDiffs">
                 <span
-                  v-for="(charDiff, cIdx) in diff.charDiffs"
-                  :key="cIdx"
+                  v-for="(cd, ci) in row.charDiffs"
+                  :key="ci"
                   :style="
-                    charDiff.source !== charDiff.target
+                    cd.source !== cd.target
                       ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
                       : undefined
                   "
-                  >{{ charDiff.target }}</span
+                  >{{ cd.target }}</span
                 >
               </template>
-              <span v-else>{{ diff.targetLine }}</span>
-            </div>
+              <span v-else>{{ row.rightLine || "\u00A0" }}</span>
+            </span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Deploy Script (Selected) -->
-    <div v-else-if="activeTab === 'script'" class="flex-1 overflow-hidden relative">
-      <div class="flex items-center justify-between p-2 border-b sticky top-0 bg-background z-10">
-        <span class="text-xs font-medium">{{ t("diff.deployScriptTitle") }}</span>
-        <div class="flex items-center gap-1">
-          <Button variant="ghost" size="sm" class="h-7 text-xs" @click="$emit('executeScript')">
-            <Play class="w-3 h-3 mr-1" />
-            {{ t("diff.executeScript") }}
+    <!-- Deploy Script -->
+    <div v-else-if="activeTab === 'script'" class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-1.5 border-b shrink-0">
+        <span class="text-xs text-muted-foreground">{{ t("diff.deployScriptDesc") }}</span>
+        <div class="flex gap-1">
+          <Button variant="ghost" size="sm" class="h-6 px-2 text-xs gap-1" @click="copyDeploySql">
+            <Copy class="w-3 h-3" />
+            {{ t("diff.copy") }}
           </Button>
-          <Button variant="ghost" size="sm" class="h-7 text-xs" @click="copyDeploySql">
-            <Copy class="w-3 h-3 mr-1" />
-            {{ t("diff.copyScript") }}
+          <Button variant="ghost" size="sm" class="h-6 px-2 text-xs gap-1" @click="$emit('executeScript')">
+            <Play class="w-3 h-3" />
+            {{ t("diff.execute") }}
           </Button>
         </div>
       </div>
-      <div class="absolute inset-0 top-[41px] overflow-y-auto">
-        <pre class="p-3 font-mono text-xs leading-relaxed whitespace-pre">{{ deploySql }}</pre>
+      <div class="flex-1 overflow-auto p-3">
+        <pre class="text-xs whitespace-pre-wrap font-mono">{{ deploySql || t("diff.noDeployScript") }}</pre>
       </div>
     </div>
 
-    <!-- Deploy Script (All) -->
-    <div v-else-if="activeTab === 'scriptAll'" class="flex-1 overflow-hidden relative">
-      <div class="flex items-center justify-between p-2 border-b sticky top-0 bg-background z-10">
-        <span class="text-xs font-medium">{{ t("diff.deployScriptAllTitle") }}</span>
-        <Button variant="ghost" size="sm" class="h-7 text-xs" @click="copyDeploySqlAll">
-          <Copy class="w-3 h-3 mr-1" />
-          {{ t("diff.copyScript") }}
-        </Button>
+    <!-- Deploy Script All -->
+    <div v-else-if="activeTab === 'scriptAll'" class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-1.5 border-b shrink-0">
+        <span class="text-xs text-muted-foreground">{{ t("diff.deployScriptAllDesc") }}</span>
+        <div class="flex gap-1">
+          <Button variant="ghost" size="sm" class="h-6 px-2 text-xs gap-1" @click="copyDeploySqlAll">
+            <Copy class="w-3 h-3" />
+            {{ t("diff.copy") }}
+          </Button>
+          <Button variant="ghost" size="sm" class="h-6 px-2 text-xs gap-1" @click="$emit('executeScript')">
+            <Play class="w-3 h-3" />
+            {{ t("diff.executeAll") }}
+          </Button>
+        </div>
       </div>
-      <div class="absolute inset-0 top-[41px] overflow-y-auto">
-        <pre class="p-3 font-mono text-xs leading-relaxed whitespace-pre">{{ deploySqlAll }}</pre>
+      <div class="flex-1 overflow-auto p-3">
+        <pre class="text-xs whitespace-pre-wrap font-mono">{{ deploySqlAll || t("diff.noDeployScriptAll") }}</pre>
       </div>
     </div>
   </div>

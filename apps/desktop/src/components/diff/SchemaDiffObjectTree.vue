@@ -266,8 +266,8 @@ function formatObjectName(obj: SchemaDiffObject): string {
               :class="{ 'bg-primary/10': selectedObjectId === obj.id }"
               @click="$emit('selectObject', obj)"
             >
-              <!-- Source -->
-              <div class="flex items-center gap-2 min-w-0">
+              <!-- Source (hide for create objects) -->
+              <div v-if="obj.operationType !== 'create'" class="flex items-center gap-2 min-w-0">
                 <input
                   type="checkbox"
                   class="accent-primary shrink-0"
@@ -293,6 +293,7 @@ function formatObjectName(obj: SchemaDiffObject): string {
                   }}
                 </span>
               </div>
+              <div v-else></div>
 
               <!-- Operation -->
               <div class="flex justify-center">
@@ -303,8 +304,16 @@ function formatObjectName(obj: SchemaDiffObject): string {
                 />
               </div>
 
-              <!-- Target -->
-              <div class="flex items-center gap-2 min-w-0">
+              <!-- Target (hide for delete objects) -->
+              <div v-if="obj.operationType !== 'delete'" class="flex items-center gap-2 min-w-0">
+                <input
+                  v-if="obj.operationType === 'create'"
+                  type="checkbox"
+                  class="accent-primary shrink-0"
+                  :checked="obj.selected"
+                  @click.stop
+                  @change="onObjectCheckboxChange(obj, $event)"
+                />
                 <component
                   :is="getObjectIcon(obj.objectKind)"
                   class="w-3.5 h-3.5 shrink-0"
@@ -320,6 +329,7 @@ function formatObjectName(obj: SchemaDiffObject): string {
                   }}
                 </span>
               </div>
+              <div v-else></div>
             </div>
           </div>
         </div>
