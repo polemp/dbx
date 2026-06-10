@@ -108,6 +108,7 @@ pub struct FunctionInfo {
     pub function_type: String,
     pub data_type: String,
     pub definition: String,
+    pub arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

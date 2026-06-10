@@ -1657,12 +1657,20 @@ pub async fn list_triggers(pool: &Pool, schema: &str, table: &str) -> Result<Vec
 
 pub async fn list_functions(pool: &Pool, schema: &str) -> Result<Vec<FunctionInfo>, String> {
     let client = pool.get().await.map_err(|e| e.to_string())?;
+    // Use pg_proc + pg_get_functiondef() instead of information_schema.routines
+    // for reliable function definition retrieval (information_schema.routines.routine_definition
+    // is NULL for non-SQL functions like plpgsql)
     let stmt = client
         .prepare_cached(
-            "SELECT routine_name, routine_type, COALESCE(data_type, ''), COALESCE(routine_definition, '') \
-             FROM information_schema.routines \
-             WHERE routine_schema = $1 AND routine_type IN ('FUNCTION', 'PROCEDURE') \
-             ORDER BY routine_name",
+            "SELECT p.proname, \
+                    CASE p.prokind WHEN 'f' THEN 'FUNCTION' WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END, \
+                    COALESCE(pg_get_function_result(p.oid), ''), \
+                    pg_get_functiondef(p.oid), \
+                    COALESCE(pg_get_function_arguments(p.oid), '') \
+             FROM pg_proc p \
+             JOIN pg_namespace n ON n.oid = p.pronamespace \
+             WHERE n.nspname = $1 AND p.prokind IN ('f', 'p') \
+             ORDER BY p.proname",
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -1670,23 +1678,43 @@ pub async fn list_functions(pool: &Pool, schema: &str) -> Result<Vec<FunctionInf
 
     Ok(rows
         .iter()
-        .map(|row| FunctionInfo {
-            name: row.get::<_, String>(0),
-            function_type: row.get::<_, String>(1),
-            data_type: row.get::<_, String>(2),
-            definition: row.get::<_, String>(3),
+        .map(|row| {
+            let def: String = row.get::<_, String>(3);
+            // Remove schema qualification from CREATE FUNCTION statement
+            // to avoid false differences when comparing across schemas.
+            // Handle both "schema.name" and schema.name formats.
+            let normalized_def = def
+                .replace(&format!("CREATE OR REPLACE FUNCTION \"{}\".", schema), "CREATE OR REPLACE FUNCTION ")
+                .replace(&format!("CREATE OR REPLACE FUNCTION {}.", schema), "CREATE OR REPLACE FUNCTION ");
+            FunctionInfo {
+                name: row.get::<_, String>(0),
+                function_type: row.get::<_, String>(1),
+                data_type: row.get::<_, String>(2),
+                definition: normalized_def,
+                arguments: row.get::<_, String>(4),
+            }
         })
         .collect())
 }
 
 pub async fn list_sequences(pool: &Pool, schema: &str, with_last_values: bool) -> Result<Vec<SequenceInfo>, String> {
     let client = pool.get().await.map_err(|e| e.to_string())?;
+    // Use pg_class + pg_sequence + pg_namespace instead of pg_sequences view
+    // for better compatibility and permission handling
     let stmt = client
         .prepare_cached(
-            "SELECT sequencename, data_type, start_value, minimum_value, maximum_value, increment, cycle_option \
-             FROM pg_sequences \
-             WHERE schemaname = $1 \
-             ORDER BY sequencename",
+            "SELECT c.relname, \
+              COALESCE(format_type(s.seqtypid, NULL), 'bigint'), \
+              COALESCE(s.seqstart::text, '1'), \
+              COALESCE(s.seqmin::text, '1'), \
+              COALESCE(s.seqmax::text, '9223372036854775807'), \
+              COALESCE(s.seqincrement::text, '1'), \
+              CASE WHEN s.seqcycle THEN 'YES' ELSE 'NO' END \
+             FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             LEFT JOIN pg_sequence s ON s.seqrelid = c.oid \
+             WHERE c.relkind = 'S' AND n.nspname = $1 \
+             ORDER BY c.relname",
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -1708,11 +1736,18 @@ pub async fn list_sequences(pool: &Pool, schema: &str, with_last_values: bool) -
 
     if with_last_values {
         for seq in &mut sequences {
-            let sql = format!("SELECT last_value FROM \"{}\".\"{}\"", schema, seq.name);
-            if let Ok(stmt) = client.prepare_cached(&sql).await {
-                if let Ok(rows) = client.query(&stmt, &[]).await {
+            // Use pg_sequence_last_value() for safer access without direct sequence permissions
+            // Note: pg_sequence_last_value returns bigint, so we use i64 then convert to String
+            let sql = "SELECT pg_sequence_last_value(c.oid) \
+                       FROM pg_class c \
+                       JOIN pg_namespace n ON n.oid = c.relnamespace \
+                       WHERE c.relkind = 'S' AND n.nspname = $1 AND c.relname = $2";
+            if let Ok(stmt) = client.prepare_cached(sql).await {
+                if let Ok(rows) = client.query(&stmt, &[&schema, &seq.name]).await {
                     if let Some(row) = rows.first() {
-                        seq.last_value = Some(row.get::<_, String>(0));
+                        if let Ok(val) = row.try_get::<_, i64>(0) {
+                            seq.last_value = Some(val.to_string());
+                        }
                     }
                 }
             }
@@ -1747,12 +1782,15 @@ pub async fn list_rules(pool: &Pool, schema: &str) -> Result<Vec<RuleInfo>, Stri
 
 pub async fn list_owners(pool: &Pool, schema: &str) -> Result<Vec<OwnerInfo>, String> {
     let client = pool.get().await.map_err(|e| e.to_string())?;
+    // Filter relkind to exclude indexes, toast tables, and other system objects
+    // for better performance on large databases
     let stmt = client
         .prepare_cached(
             "SELECT n.nspname, c.relname, c.relkind, pg_get_userbyid(c.relowner) \
              FROM pg_class c \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE n.nspname = $1",
+             WHERE n.nspname = $1 \
+               AND c.relkind IN ('r', 'v', 'm', 'S', 'f', 'p')",
         )
         .await
         .map_err(|e| e.to_string())?;

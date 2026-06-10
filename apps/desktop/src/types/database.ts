@@ -239,6 +239,7 @@ export interface FunctionInfo {
   function_type: string;
   data_type: string;
   definition: string;
+  arguments: string;
 }
 
 export interface SequenceInfo {

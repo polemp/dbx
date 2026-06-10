@@ -657,13 +657,29 @@ pub fn diff_triggers(source: &[TriggerInfo], target: &[TriggerInfo]) -> Vec<Trig
     diffs
 }
 
+/// Normalize a function definition for comparison by:
+/// - Converting CRLF to LF
+/// - Collapsing all whitespace (tabs, multiple spaces) to single spaces
+/// - Trimming each line and rejoining
+fn normalize_definition(def: &str) -> String {
+    def.replace("\r\n", "\n")
+        .split('\n')
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn diff_functions(source: &[FunctionInfo], target: &[FunctionInfo]) -> Vec<FunctionDiff> {
     let mut diffs = Vec::new();
-    let target_map: HashMap<&str, &FunctionInfo> = target.iter().map(|f| (f.name.as_str(), f)).collect();
-    let source_map: HashMap<&str, &FunctionInfo> = source.iter().map(|f| (f.name.as_str(), f)).collect();
+    // Use (name, arguments) as key to support PostgreSQL function overloading
+    let target_map: HashMap<(&str, &str), &FunctionInfo> =
+        target.iter().map(|f| ((f.name.as_str(), f.arguments.as_str()), f)).collect();
+    let source_map: HashMap<(&str, &str), &FunctionInfo> =
+        source.iter().map(|f| ((f.name.as_str(), f.arguments.as_str()), f)).collect();
 
     for source_fn in source {
-        let Some(target_fn) = target_map.get(source_fn.name.as_str()) else {
+        let key = (source_fn.name.as_str(), source_fn.arguments.as_str());
+        let Some(target_fn) = target_map.get(&key) else {
             diffs.push(FunctionDiff {
                 diff_type: "added".to_string(),
                 name: source_fn.name.clone(),
@@ -678,7 +694,10 @@ pub fn diff_functions(source: &[FunctionInfo], target: &[FunctionInfo]) -> Vec<F
         if source_fn.function_type != target_fn.function_type {
             changes.push(format!("type: {} → {}", target_fn.function_type, source_fn.function_type));
         }
-        if source_fn.definition != target_fn.definition {
+        if source_fn.data_type != target_fn.data_type {
+            changes.push(format!("return type: {} → {}", target_fn.data_type, source_fn.data_type));
+        }
+        if normalize_definition(&source_fn.definition) != normalize_definition(&target_fn.definition) {
             changes.push("definition changed".to_string());
         }
         if !changes.is_empty() {
@@ -693,7 +712,8 @@ pub fn diff_functions(source: &[FunctionInfo], target: &[FunctionInfo]) -> Vec<F
     }
 
     for target_fn in target {
-        if !source_map.contains_key(target_fn.name.as_str()) {
+        let key = (target_fn.name.as_str(), target_fn.arguments.as_str());
+        if !source_map.contains_key(&key) {
             diffs.push(FunctionDiff {
                 diff_type: "removed".to_string(),
                 name: target_fn.name.clone(),
@@ -743,12 +763,12 @@ pub fn diff_sequences(source: &[SequenceInfo], target: &[SequenceInfo]) -> Vec<S
         if source_seq.cycle != target_seq.cycle {
             changes.push(format!("cycle: {} → {}", target_seq.cycle, source_seq.cycle));
         }
-        if source_seq.last_value != target_seq.last_value {
-            changes.push(format!(
-                "last_value: {} → {}",
-                target_seq.last_value.as_deref().unwrap_or("NULL"),
-                source_seq.last_value.as_deref().unwrap_or("NULL")
-            ));
+        // Only compare last_value when both sides successfully retrieved it.
+        // Avoid false positives when one side lacks permission (returns None).
+        if let (Some(s), Some(t)) = (&source_seq.last_value, &target_seq.last_value) {
+            if s != t {
+                changes.push(format!("last_value: {} → {}", t, s));
+            }
         }
         if !changes.is_empty() {
             diffs.push(SequenceDiff {
