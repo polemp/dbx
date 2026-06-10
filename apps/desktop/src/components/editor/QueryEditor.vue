@@ -21,7 +21,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { resolveExecutableSql } from "@/lib/sqlExecutionTarget";
 import { formatSqlText, type SqlFormatDialect } from "@/lib/sqlFormatter";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { useSettingsStore } from "@/stores/settingsStore";
+import { useSettingsStore, type EditorSettings } from "@/stores/settingsStore";
 import { useTheme } from "@/composables/useTheme";
 import { useToast } from "@/composables/useToast";
 import {
