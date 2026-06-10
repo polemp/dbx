@@ -1535,6 +1535,12 @@ export default {
     syncProgress: "Executing: {current}/{total}",
     syncSummary: "Succeeded {success}, failed {failed}",
     configSaved: "Config saved",
+    selectObjectToCompare: "Select an object to view DDL comparison",
+    noDdlAvailable: "No DDL available",
+    sourceDdl: "Source DDL",
+    targetDdl: "Target DDL",
+    objectNotExistsInSource: "This object does not exist in the source database",
+    objectNotExistsInTarget: "This object does not exist in the target database",
   },
   schemaDiff: {
     optionsTitle: "Compare Options",

@@ -233,13 +233,14 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
   return result;
 }
 
+const ddlMode = computed(() => props.selectedObject?.operationType || "none");
+
+const sourceLines = computed(() => (props.selectedObject?.sourceDdl || "").split("\n"));
+const targetLines = computed(() => (props.selectedObject?.targetDdl || "").split("\n"));
+
 const ddlDiffs = computed(() => {
   if (!props.selectedObject?.sourceDdl && !props.selectedObject?.targetDdl) return [];
-
-  const sourceLines = (props.selectedObject?.sourceDdl || "").split("\n");
-  const targetLines = (props.selectedObject?.targetDdl || "").split("\n");
-
-  return computeLineDiffs(sourceLines, targetLines);
+  return computeLineDiffs(sourceLines.value, targetLines.value);
 });
 
 function copyDeploySql() {
@@ -297,18 +298,77 @@ function copyDeploySqlAll() {
 
     <!-- DDL Compare -->
     <div v-if="activeTab === 'ddl'" class="flex-1 overflow-hidden relative">
+      <!-- No selection -->
       <div
         v-if="!selectedObject"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
       >
         {{ t("diff.selectObjectToCompare") }}
       </div>
+
+      <!-- No DDL available -->
       <div
-        v-else-if="ddlDiffs.length === 0"
+        v-else-if="!selectedObject.sourceDdl && !selectedObject.targetDdl"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
       >
         {{ t("diff.noDdlAvailable") }}
       </div>
+
+      <!-- Create mode: source has it, target doesn't -->
+      <div v-else-if="ddlMode === 'create'" class="absolute inset-0 flex">
+        <div class="flex-1 overflow-y-auto">
+          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+            {{ t("diff.sourceDdl") }}
+          </div>
+          <div class="font-mono text-xs leading-relaxed">
+            <div
+              v-for="(line, idx) in sourceLines"
+              :key="idx"
+              class="px-3 py-0.5 min-h-[20px]"
+              :style="{ backgroundColor: toRgba(ddlColors.removedRowBg, ddlColors.removedRowBgAlpha) }"
+            >
+              {{ line }}
+            </div>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+            {{ t("diff.targetDdl") }}
+          </div>
+          <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
+            {{ t("diff.objectNotExistsInTarget") }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete mode: target has it, source doesn't -->
+      <div v-else-if="ddlMode === 'delete'" class="absolute inset-0 flex">
+        <div class="flex-1 overflow-y-auto">
+          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+            {{ t("diff.sourceDdl") }}
+          </div>
+          <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
+            {{ t("diff.objectNotExistsInSource") }}
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+            {{ t("diff.targetDdl") }}
+          </div>
+          <div class="font-mono text-xs leading-relaxed">
+            <div
+              v-for="(line, idx) in targetLines"
+              :key="idx"
+              class="px-3 py-0.5 min-h-[20px]"
+              :style="{ backgroundColor: toRgba(ddlColors.addedRowBg, ddlColors.addedRowBgAlpha) }"
+            >
+              {{ line }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modify/None mode: side-by-side diff -->
       <div v-else class="absolute inset-0 flex">
         <!-- Source DDL -->
         <div ref="sourceDdlRef" class="flex-1 overflow-y-auto" @scroll="syncScroll('source')">

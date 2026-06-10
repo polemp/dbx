@@ -1519,6 +1519,8 @@ export default {
     deployScript: "部署脚本",
     selectObjectToCompare: "选择对象查看 DDL 对比",
     noDdlAvailable: "无可用的 DDL",
+    objectNotExistsInSource: "此对象在源库中不存在",
+    objectNotExistsInTarget: "此对象在目标库中不存在",
     sourceDdl: "源 DDL",
     targetDdl: "目标 DDL",
     deployScriptTitle: "部署脚本",

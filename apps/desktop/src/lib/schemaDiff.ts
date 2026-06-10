@@ -270,6 +270,8 @@ export function convertToSchemaDiffObjects(
       sourceName: diff.type === "added" ? undefined : diff.name,
       targetName: diff.type === "removed" ? undefined : diff.name,
       selected: true,
+      sourceDdl: diff.source?.definition,
+      targetDdl: diff.target?.definition,
       changes: diff.changes,
     });
   }

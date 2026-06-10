@@ -520,51 +520,70 @@ async function handleExecuteScript() {
     executing.value = false;
   }
 }
-
 async function handleSelectObject(obj: SchemaDiffObject) {
   selectedObjectId.value = obj.id;
 
   // Dynamically fetch DDL for objects that don't have pre-generated DDL
-  // (functions and views need runtime retrieval)
-  const needsDynamicDdl =
-    (obj.objectKind === "function" || obj.objectKind === "view") && !obj.sourceDdl && !obj.targetDdl;
+  // (views need runtime retrieval; functions should already have definition)
+  const objectTypeMap: Record<string, string> = {
+    function: "FUNCTION",
+    view: "VIEW",
+  };
+  const objectType = objectTypeMap[obj.objectKind];
+  if (!objectType) return;
 
-  if (needsDynamicDdl) {
-    const objectType = obj.objectKind === "view" ? "VIEW" : "FUNCTION";
-    try {
-      // Fetch source DDL if object exists in source
-      if (obj.operationType !== "create") {
-        const sourceResult = await api.getObjectSource(
+  try {
+    // For "create" objects: source has it, target doesn't → fetch source DDL
+    if (obj.operationType === "create" && !obj.sourceDdl) {
+      const result = await api.getObjectSource(
+        sourceConnectionId.value,
+        sourceDatabase.value,
+        sourceSchema.value,
+        obj.name,
+        objectType,
+      );
+      if (result?.source) obj.sourceDdl = result.source;
+    }
+
+    // For "delete" objects: target has it, source doesn't → fetch target DDL
+    if (obj.operationType === "delete" && !obj.targetDdl) {
+      const result = await api.getObjectSource(
+        targetConnectionId.value,
+        targetDatabase.value,
+        targetSchema.value,
+        obj.name,
+        objectType,
+      );
+      if (result?.source) obj.targetDdl = result.source;
+    }
+
+    // For "modify" objects: fetch whichever side is missing
+    if (obj.operationType === "modify") {
+      if (!obj.sourceDdl) {
+        const result = await api.getObjectSource(
           sourceConnectionId.value,
           sourceDatabase.value,
           sourceSchema.value,
           obj.name,
           objectType,
         );
-        if (sourceResult?.source) {
-          obj.sourceDdl = sourceResult.source;
-        }
+        if (result?.source) obj.sourceDdl = result.source;
       }
-
-      // Fetch target DDL if object exists in target
-      if (obj.operationType !== "delete") {
-        const targetResult = await api.getObjectSource(
+      if (!obj.targetDdl) {
+        const result = await api.getObjectSource(
           targetConnectionId.value,
           targetDatabase.value,
           targetSchema.value,
           obj.name,
           objectType,
         );
-        if (targetResult?.source) {
-          obj.targetDdl = targetResult.source;
-        }
+        if (result?.source) obj.targetDdl = result.source;
       }
-    } catch {
-      // Silently ignore errors
     }
+  } catch {
+    // Silently ignore errors
   }
 }
-
 function handleLoadHistoryConfig(config: SchemaDiffConfig) {
   sourceConnectionId.value = config.sourceConnectionId;
   sourceDatabase.value = config.sourceDatabase;
