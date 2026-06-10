@@ -1,30 +1,35 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useI18n } from "vue-i18n";
 import { Dialog, DialogHeader, DialogTitle, DialogFooter, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useConnectionStore } from "@/stores/connectionStore";
-import DatabaseIcon from "@/components/icons/DatabaseIcon.vue";
-import * as api from "@/lib/api";
-import { isSchemaAware } from "@/lib/databaseCapabilities";
-import { copyToClipboard } from "@/lib/clipboard";
-import type { TableDiff, TableSchemaDetail } from "@/lib/schemaDiff";
-import type { TableInfo } from "@/types/database";
-import { sqlMetadataRefreshTarget } from "@/lib/sqlMetadataRefresh";
 import { useToast } from "@/composables/useToast";
-import { Loader2, Copy, Play, GitCompareArrows, ArrowLeftRight } from "@lucide/vue";
-import { useSqlHighlighter } from "@/composables/useSqlHighlighter";
-
-interface SelectableTableDiff extends TableDiff {
-  selected: boolean;
-}
+import { GitCompareArrows, ArrowLeft, Play, Loader2 } from "@lucide/vue";
+import * as api from "@/lib/api";
+import { useSchemaDiffConfig } from "@/composables/useSchemaDiffConfig";
+import SchemaDiffConfigStep from "@/components/diff/SchemaDiffConfigStep.vue";
+import SchemaDiffObjectTree from "@/components/diff/SchemaDiffObjectTree.vue";
+import SchemaDiffDdlPanel from "@/components/diff/SchemaDiffDdlPanel.vue";
+import SchemaDiffOptionsPanel from "@/components/diff/SchemaDiffOptionsPanel.vue";
+import { getSchemaDiffOptionsForDbType } from "@/lib/schemaDiffOptions";
+import { getDefaultOptionsForDbType } from "@/types/schemaDiff";
+import type { SchemaDiffCompareOptions, SchemaDiffConfig } from "@/types/schemaDiff";
+import {
+  convertToSchemaDiffObjects,
+  groupDiffObjects,
+  type OperationGroup,
+  type SchemaDiffObject,
+  type DiffOperationType,
+  type DiffObjectKind,
+  type TableSchemaDetail,
+  type SchemaDiffPreparation,
+} from "@/lib/schemaDiff";
+import { Splitpanes, Pane } from "splitpanes";
+import "splitpanes/dist/splitpanes.css";
 
 const { t } = useI18n();
 const { toast } = useToast();
-const { highlight } = useSqlHighlighter();
 const open = defineModel<boolean>("open", { default: false });
 const store = useConnectionStore();
 
@@ -34,257 +39,481 @@ const props = defineProps<{
   prefillSchema?: string;
 }>();
 
+// Wizard state
+const step = ref<"config" | "compare" | "result">("config");
+
+// Source/Target selections
 const sourceConnectionId = ref("");
 const sourceDatabase = ref("");
-const sourceDatabases = ref<string[]>([]);
 const sourceSchema = ref("");
-const sourceSchemas = ref<string[]>([]);
-
 const targetConnectionId = ref("");
 const targetDatabase = ref("");
-const targetDatabases = ref<string[]>([]);
 const targetSchema = ref("");
-const targetSchemas = ref<string[]>([]);
-
-const step = ref<"select" | "comparing" | "result">("select");
-const diffs = ref<SelectableTableDiff[]>([]);
-const loadingMeta = ref(false);
-const executing = ref(false);
-const executedCount = ref(0);
-const executeTotal = ref(0);
-const syncErrors = ref<{ sql: string; error: string }[]>([]);
-const syncSql = ref("");
 const ignoreComments = ref(false);
-const highlightedSyncSql = computed(() => highlight(syncSql.value));
 
-const allSelected = computed(() => diffs.value.length > 0 && diffs.value.every((d) => d.selected));
-const someSelected = computed(() => diffs.value.some((d) => d.selected) && !allSelected.value);
+// Options panel
+const showOptionsPanel = ref(false);
+const optionTree = computed(() => {
+  const targetConfig = store.getConfig(targetConnectionId.value);
+  const dbType = targetConfig?.db_type || "postgres";
+  return getSchemaDiffOptionsForDbType(dbType);
+});
 
-function toggleAll() {
-  const next = !allSelected.value;
-  diffs.value.forEach((d) => (d.selected = next));
-  refreshSelectedSyncSql().catch((e) => toast(e?.message || String(e), 5000));
+// Compare state
+const loading = ref(false);
+const diffObjects = ref<SchemaDiffObject[]>([]);
+const diffGroups = ref<OperationGroup[]>([]);
+const selectedObjectId = ref<string | null>(null);
+const deploySql = ref("");
+const deploySqlAll = ref("");
+const executing = ref(false);
+const lastDiffResult = ref<SchemaDiffPreparation | null>(null);
+
+// Dialog size memory (width + height + splitpanes ratio)
+const DIALOG_SIZE_KEY = "dbx-schema-diff-size";
+const SPLITPANES_SIZE_KEY = "dbx-schema-diff-splitpanes-v2";
+const savedSize = JSON.parse(localStorage.getItem(DIALOG_SIZE_KEY) || "null");
+
+const savedSplitpanes = (() => {
+  try {
+    const raw = localStorage.getItem(SPLITPANES_SIZE_KEY);
+    if (!raw) return null;
+    const val = JSON.parse(raw);
+    return typeof val === "number" && val >= 10 && val <= 90 ? val : null;
+  } catch {
+    return null;
+  }
+})();
+
+// Splitpanes size memory (percentage for first pane)
+const splitpanesSize = ref(savedSplitpanes ?? 60);
+
+function handleSplitpanesResized(payload: { panes: { size: number }[] }) {
+  if (payload.panes && payload.panes.length > 0) {
+    const size = payload.panes[0].size;
+    splitpanesSize.value = size;
+    localStorage.setItem(SPLITPANES_SIZE_KEY, JSON.stringify(size));
+  }
 }
 
-const sqlConnections = computed(() =>
-  store.connections.filter((c) => !["redis", "mongodb", "elasticsearch"].includes(c.db_type)),
-);
+// Config step: always use default size 1100x820
+// Result step: use saved size if exists
+const dialogStyle = computed(() => {
+  if (step.value === "result") {
+    return {
+      width: savedSize?.width || "1100px",
+      height: savedSize?.height || "820px",
+      maxWidth: "calc(100vw - 2rem)",
+      maxHeight: "calc(100vh - 2rem)",
+    };
+  }
+  return {
+    width: "1100px",
+    height: "820px",
+    maxWidth: "calc(100vw - 2rem)",
+    maxHeight: "calc(100vh - 2rem)",
+  };
+});
 
-const canCompare = computed(
-  () =>
-    sourceConnectionId.value &&
-    sourceDatabase.value &&
-    sourceSchema.value &&
-    targetConnectionId.value &&
-    targetDatabase.value &&
-    targetSchema.value,
-);
+let resizeObserver: ResizeObserver | null = null;
+let saveTimeout: number | null = null;
 
-function connectionIconType(connectionId: string) {
-  const config = store.getConfig(connectionId);
-  return config?.driver_profile || config?.db_type || "mysql";
+function setupResizeObserver() {
+  const el = document.querySelector('[data-slot="dialog-content"]') as HTMLElement;
+  if (!el) return;
+
+  resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      if (saveTimeout) clearTimeout(saveTimeout);
+      saveTimeout = window.setTimeout(() => {
+        localStorage.setItem(
+          DIALOG_SIZE_KEY,
+          JSON.stringify({
+            width: `${width}px`,
+            height: `${height}px`,
+          }),
+        );
+      }, 500);
+    }
+  });
+
+  resizeObserver.observe(el);
 }
 
-function swapSourceTarget() {
-  const tmpConnId = sourceConnectionId.value;
-  const tmpDb = sourceDatabase.value;
-  const tmpDbs = sourceDatabases.value;
-  const tmpSchema = sourceSchema.value;
-  const tmpSchemas = sourceSchemas.value;
+function teardownResizeObserver() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+}
+
+// Only enable resize observer in result step
+watch(
+  () => step.value,
+  (newStep) => {
+    if (newStep === "result") {
+      setTimeout(setupResizeObserver, 100);
+    } else {
+      teardownResizeObserver();
+    }
+  },
+);
+
+onBeforeUnmount(() => {
+  teardownResizeObserver();
+});
+
+// Config management
+const {
+  configs,
+  activeConfigId,
+  activeConfig,
+  recentConfigs,
+  ensureDefaultConfig,
+  updateActiveConfigConnection,
+  updateActiveConfigOptions,
+  saveToHistory,
+  deleteFromHistory,
+} = useSchemaDiffConfig();
+
+const selectedObject = computed(() => {
+  if (!selectedObjectId.value) return null;
+  for (const group of diffGroups.value) {
+    for (const typeGroup of group.typeGroups) {
+      const obj = typeGroup.objects.find((o) => o.id === selectedObjectId.value);
+      if (obj) return obj;
+    }
+  }
+  return null;
+});
+
+const canDeploy = computed(() => {
+  return diffObjects.value.some((o) => o.selected && o.operationType !== "none");
+});
+
+// Watch for prefilled values
+watch(
+  () => open.value,
+  (isOpen) => {
+    if (isOpen) {
+      ensureDefaultConfig();
+      if (props.prefillConnectionId) {
+        sourceConnectionId.value = props.prefillConnectionId;
+        if (props.prefillDatabase) {
+          sourceDatabase.value = props.prefillDatabase;
+        }
+        if (props.prefillSchema) {
+          sourceSchema.value = props.prefillSchema;
+        }
+      }
+    }
+  },
+  { immediate: true },
+);
+
+// Config sync
+watch(
+  [sourceConnectionId, sourceDatabase, sourceSchema, targetConnectionId, targetDatabase, targetSchema],
+  ([srcConn, srcDb, srcSchema, tgtConn, tgtDb, tgtSchema]) => {
+    updateActiveConfigConnection({
+      sourceConnectionId: srcConn,
+      sourceDatabase: srcDb,
+      sourceSchema: srcSchema,
+      targetConnectionId: tgtConn,
+      targetDatabase: tgtDb,
+      targetSchema: tgtSchema,
+    });
+  },
+);
+
+function getDbType(): string {
+  const targetConfig = store.getConfig(targetConnectionId.value);
+  return targetConfig?.db_type || "postgres";
+}
+
+function handleSwap() {
+  const tempConn = sourceConnectionId.value;
+  const tempDb = sourceDatabase.value;
+  const tempSchema = sourceSchema.value;
   sourceConnectionId.value = targetConnectionId.value;
   sourceDatabase.value = targetDatabase.value;
-  sourceDatabases.value = targetDatabases.value;
   sourceSchema.value = targetSchema.value;
-  sourceSchemas.value = targetSchemas.value;
-  targetConnectionId.value = tmpConnId;
-  targetDatabase.value = tmpDb;
-  targetDatabases.value = tmpDbs;
-  targetSchema.value = tmpSchema;
-  targetSchemas.value = tmpSchemas;
-  resetResult();
+  targetConnectionId.value = tempConn;
+  targetDatabase.value = tempDb;
+  targetSchema.value = tempSchema;
 }
 
-async function loadDatabases(connectionId: string, side: "source" | "target") {
-  if (!connectionId) return;
-  loadingMeta.value = true;
-  try {
-    await store.ensureConnected(connectionId);
-    const dbs = await api.listDatabases(connectionId);
-    const names = dbs.map((d) => d.name);
-    if (side === "source") {
-      sourceDatabases.value = names;
-      sourceDatabase.value = names.length === 1 ? names[0] : "";
-      sourceSchemas.value = [];
-      sourceSchema.value = "";
-    } else {
-      targetDatabases.value = names;
-      targetDatabase.value = names.length === 1 ? names[0] : "";
-      targetSchemas.value = [];
-      targetSchema.value = "";
-    }
-  } catch {
-    if (side === "source") sourceDatabases.value = [];
-    else targetDatabases.value = [];
-  } finally {
-    loadingMeta.value = false;
+function handleOptionsUpdate(options: SchemaDiffCompareOptions) {
+  if (activeConfig.value) {
+    updateActiveConfigOptions(options);
   }
 }
 
-async function loadSchemas(side: "source" | "target", preferredSchema = "") {
-  const connectionId = side === "source" ? sourceConnectionId.value : targetConnectionId.value;
-  const database = side === "source" ? sourceDatabase.value : targetDatabase.value;
-  if (!connectionId || !database) return;
-  const config = store.getConfig(connectionId);
-  if (!isSchemaAware(config?.db_type)) {
-    if (side === "source") {
-      sourceSchemas.value = [];
-      sourceSchema.value = database;
-    } else {
-      targetSchemas.value = [];
-      targetSchema.value = database;
-    }
-    return;
-  }
-
-  const schemas = await api.listSchemas(connectionId, database);
-  const selected =
-    preferredSchema && schemas.includes(preferredSchema)
-      ? preferredSchema
-      : schemas.includes("public")
-        ? "public"
-        : (schemas[0] ?? "");
-  if (side === "source") {
-    sourceSchemas.value = schemas;
-    sourceSchema.value = selected;
-  } else {
-    targetSchemas.value = schemas;
-    targetSchema.value = selected;
-  }
-}
-
-async function startCompare() {
-  if (!canCompare.value) return;
-  step.value = "comparing";
-  diffs.value = [];
-  syncSql.value = "";
+async function handleCompare() {
+  loading.value = true;
+  step.value = "compare";
 
   try {
     await store.ensureConnected(sourceConnectionId.value);
     await store.ensureConnected(targetConnectionId.value);
-    const targetConfig = store.getConfig(targetConnectionId.value);
 
     const [srcTables, tgtTables] = await Promise.all([
       api.listTables(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value),
       api.listTables(targetConnectionId.value, targetDatabase.value, targetSchema.value),
     ]);
 
-    const { sourceDetails, targetDetails } = await loadSchemaDiffDetails(srcTables, tgtTables);
+    // Load schema details
+    const sourceDetails: TableSchemaDetail[] = [];
+    const targetDetails: TableSchemaDetail[] = [];
+
+    for (const table of srcTables) {
+      const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
+        api.getColumns(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+        api.listIndexes(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+        api.listForeignKeys(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+        api.listTriggers(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+        api.getTableDdl(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+      ]);
+      sourceDetails.push({ name: table.name, columns, indexes, foreignKeys, triggers, ddl });
+    }
+
+    for (const table of tgtTables) {
+      const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
+        api.getColumns(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+        api.listIndexes(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+        api.listForeignKeys(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+        api.listTriggers(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+        api.getTableDdl(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+      ]);
+      targetDetails.push({ name: table.name, columns, indexes, foreignKeys, triggers, ddl });
+    }
+
+    const targetConfig = store.getConfig(targetConnectionId.value);
+    const dbType = targetConfig?.db_type || "mysql";
+    const isPostgresLike = dbType === "postgres" || dbType === "opengauss";
+    const opts = activeConfig.value?.options;
+
+    // Fetch new object types for PostgreSQL-like databases
+    const promises: Promise<any>[] = [];
+    if (isPostgresLike && opts?.functions) {
+      promises.push(api.listFunctions(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value));
+      promises.push(api.listFunctions(targetConnectionId.value, targetDatabase.value, targetSchema.value));
+    }
+    if (isPostgresLike && opts?.sequences) {
+      promises.push(
+        api.listSequences(
+          sourceConnectionId.value,
+          sourceDatabase.value,
+          sourceSchema.value,
+          !!opts?.sequenceLastValues,
+        ),
+      );
+      promises.push(
+        api.listSequences(
+          targetConnectionId.value,
+          targetDatabase.value,
+          targetSchema.value,
+          !!opts?.sequenceLastValues,
+        ),
+      );
+    }
+    if (isPostgresLike && opts?.rules) {
+      promises.push(api.listRules(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value));
+      promises.push(api.listRules(targetConnectionId.value, targetDatabase.value, targetSchema.value));
+    }
+    if (isPostgresLike && opts?.owners) {
+      promises.push(api.listOwners(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value));
+      promises.push(api.listOwners(targetConnectionId.value, targetDatabase.value, targetSchema.value));
+    }
+
+    const results = await Promise.all(promises);
+    let idx = 0;
+    const srcFunctions = opts?.functions && isPostgresLike ? results[idx++] : [];
+    const tgtFunctions = opts?.functions && isPostgresLike ? results[idx++] : [];
+    const srcSequences = opts?.sequences && isPostgresLike ? results[idx++] : [];
+    const tgtSequences = opts?.sequences && isPostgresLike ? results[idx++] : [];
+    const srcRules = opts?.rules && isPostgresLike ? results[idx++] : [];
+    const tgtRules = opts?.rules && isPostgresLike ? results[idx++] : [];
+    const srcOwners = opts?.owners && isPostgresLike ? results[idx++] : [];
+    const tgtOwners = opts?.owners && isPostgresLike ? results[idx++] : [];
+
     const result = await api.prepareSchemaDiff({
       sourceTables: srcTables,
       targetTables: tgtTables,
       sourceDetails,
       targetDetails,
-      databaseType: targetConfig?.db_type || "mysql",
+      sourceFunctions: srcFunctions,
+      targetFunctions: tgtFunctions,
+      sourceSequences: srcSequences,
+      targetSequences: tgtSequences,
+      sourceRules: srcRules,
+      targetRules: tgtRules,
+      sourceOwners: srcOwners,
+      targetOwners: tgtOwners,
+      databaseType: dbType,
       targetSchema: targetSchema.value,
       ignoreComments: ignoreComments.value,
+      cascadeDelete: opts?.cascadeDelete ?? false,
     });
 
-    diffs.value = result.diffs.map((diff) => ({ ...diff, selected: true }));
-    syncSql.value = result.syncSql;
+    // Convert to unified objects
+    diffObjects.value = convertToSchemaDiffObjects(
+      result.diffs,
+      result.functionDiffs,
+      result.sequenceDiffs,
+      result.ruleDiffs,
+      result.ownerDiffs,
+    );
+
+    // Group by operation type and object kind
+    diffGroups.value = groupDiffObjects(diffObjects.value);
+
+    // Save full result and generate deploy SQL
+    lastDiffResult.value = result;
+    deploySqlAll.value = result.syncSql;
+    regenerateDeploySql();
+
     step.value = "result";
   } catch (e: any) {
     toast(e?.message || String(e), 5000);
-    step.value = "select";
+    step.value = "config";
+  } finally {
+    loading.value = false;
   }
 }
 
-async function loadSchemaDiffDetails(sourceTables: TableInfo[], targetTables: TableInfo[]) {
-  const sourceTableNames = sourceTables.filter((table) => table.table_type !== "VIEW").map((table) => table.name);
-  const targetTableNames = targetTables.filter((table) => table.table_type !== "VIEW").map((table) => table.name);
-  const targetTableSet = new Set(targetTableNames);
-  const sourceTableSet = new Set(sourceTableNames);
-  const sourceDetails: TableSchemaDetail[] = [];
-  const targetDetails: TableSchemaDetail[] = [];
-
-  for (const name of sourceTableNames) {
-    if (targetTableSet.has(name)) {
-      const [columns, indexes, foreignKeys, triggers] = await Promise.all([
-        api.getColumns(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, name),
-        api.listIndexes(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, name),
-        api.listForeignKeys(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, name),
-        api.listTriggers(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, name),
-      ]);
-      sourceDetails.push({ name, columns, indexes, foreignKeys, triggers });
-    } else {
-      const ddl = await api.getTableDdl(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, name);
-      sourceDetails.push({ name, ddl });
-    }
-  }
-
-  for (const name of targetTableNames) {
-    if (!sourceTableSet.has(name)) continue;
-    const [columns, indexes, foreignKeys, triggers] = await Promise.all([
-      api.getColumns(targetConnectionId.value, targetDatabase.value, targetSchema.value, name),
-      api.listIndexes(targetConnectionId.value, targetDatabase.value, targetSchema.value, name),
-      api.listForeignKeys(targetConnectionId.value, targetDatabase.value, targetSchema.value, name),
-      api.listTriggers(targetConnectionId.value, targetDatabase.value, targetSchema.value, name),
-    ]);
-    targetDetails.push({ name, columns, indexes, foreignKeys, triggers });
-  }
-
-  return { sourceDetails, targetDetails };
+function handleToggleGroup(operationType: DiffOperationType) {
+  diffGroups.value = diffGroups.value.map((g) =>
+    g.operationType === operationType ? { ...g, expanded: !g.expanded } : g,
+  );
 }
 
-async function refreshSelectedSyncSql() {
-  const selected = diffs.value.filter((diff) => diff.selected);
+function handleToggleTypeGroup(operationType: DiffOperationType, kind: DiffObjectKind) {
+  diffGroups.value = diffGroups.value.map((g) => {
+    if (g.operationType !== operationType) return g;
+    return {
+      ...g,
+      typeGroups: g.typeGroups.map((tg) => (tg.kind === kind ? { ...tg, expanded: !tg.expanded } : tg)),
+    };
+  });
+}
+
+function handleToggleGroupSelection(operationType: DiffOperationType, selected: boolean) {
+  diffGroups.value = diffGroups.value.map((g) => {
+    if (g.operationType !== operationType) return g;
+    return {
+      ...g,
+      selectedCount: selected ? g.count : 0,
+      typeGroups: g.typeGroups.map((tg) => {
+        for (const obj of tg.objects) {
+          obj.selected = selected;
+        }
+        return { ...tg, selectedCount: selected ? tg.objects.length : 0 };
+      }),
+    };
+  });
+  regenerateDeploySql();
+}
+
+function handleToggleTypeSelection(operationType: DiffOperationType, kind: DiffObjectKind, selected: boolean) {
+  diffGroups.value = diffGroups.value.map((g) => {
+    if (g.operationType !== operationType) return g;
+    const newTypeGroups = g.typeGroups.map((tg) => {
+      if (tg.kind !== kind) return tg;
+      for (const obj of tg.objects) {
+        obj.selected = selected;
+      }
+      return { ...tg, selectedCount: selected ? tg.objects.length : 0 };
+    });
+    const newSelectedCount = newTypeGroups.reduce((sum, tg) => sum + tg.selectedCount, 0);
+    return { ...g, selectedCount: newSelectedCount, typeGroups: newTypeGroups };
+  });
+  regenerateDeploySql();
+}
+
+function handleToggleObjectSelection(objectId: string, selected: boolean) {
+  const obj = diffObjects.value.find((o) => o.id === objectId);
+  if (!obj) return;
+
+  obj.selected = selected;
+
+  // Update diffGroups with new references to trigger reactivity
+  diffGroups.value = diffGroups.value.map((g) => {
+    if (g.operationType !== obj.operationType) return g;
+    const newTypeGroups = g.typeGroups.map((tg) => {
+      if (tg.kind !== obj.objectKind) return tg;
+      const newSelectedCount = tg.objects.filter((o) => o.selected).length;
+      return { ...tg, selectedCount: newSelectedCount };
+    });
+    const newSelectedCount = newTypeGroups.reduce((sum, tg) => sum + tg.selectedCount, 0);
+    return { ...g, selectedCount: newSelectedCount, typeGroups: newTypeGroups };
+  });
+
+  regenerateDeploySql();
+}
+
+function regenerateDeploySql() {
+  // 只选择顶层对象（排除 children）
+  const selected = diffObjects.value.filter((o) => {
+    const isTopLevel =
+      !o.id.startsWith("col-") && !o.id.startsWith("idx-") && !o.id.startsWith("fk-") && !o.id.startsWith("trg-");
+    return o.selected && o.operationType !== "none" && isTopLevel;
+  });
+
   if (selected.length === 0) {
-    syncSql.value = "";
+    deploySql.value = "-- No objects selected";
     return;
   }
-  const targetConfig = store.getConfig(targetConnectionId.value);
-  syncSql.value = await api.generateSchemaSyncSql(selected, targetConfig?.db_type || "mysql", targetSchema.value);
+
+  const lines: string[] = [];
+
+  for (const obj of selected) {
+    if (obj.operationType === "create") {
+      if (obj.sourceDdl) {
+        lines.push(`-- Create ${obj.objectKind}: ${obj.name}`);
+        lines.push(obj.sourceDdl);
+        lines.push("");
+      }
+    } else if (obj.operationType === "delete") {
+      lines.push(`-- Drop ${obj.objectKind}: ${obj.name}`);
+      const dropSql = generateDropSql(obj);
+      lines.push(dropSql);
+      lines.push("");
+    } else if (obj.operationType === "modify") {
+      if (obj.sourceDdl) {
+        lines.push(`-- Modify ${obj.objectKind}: ${obj.name}`);
+        lines.push(obj.sourceDdl);
+        lines.push("");
+      }
+    }
+  }
+
+  deploySql.value = lines.join("\n") || "-- No DDL available for selected objects";
 }
 
-function onDiffSelectionChange() {
-  refreshSelectedSyncSql().catch((e) => toast(e?.message || String(e), 5000));
+function generateDropSql(obj: SchemaDiffObject): string {
+  const typeMap: Record<string, string> = {
+    table: "TABLE",
+    view: "VIEW",
+    function: "FUNCTION",
+    sequence: "SEQUENCE",
+    rule: "RULE",
+    owner: "OWNED BY",
+  };
+  const sqlType = typeMap[obj.objectKind] || obj.objectKind.toUpperCase();
+  return `DROP ${sqlType} IF EXISTS ${obj.name};`;
 }
 
-async function executeSql() {
-  const sql = syncSql.value.trim();
-  if (!sql || executing.value) return;
+async function handleExecuteScript() {
+  if (!deploySql.value || deploySql.value.startsWith("-- ")) {
+    toast(t("diff.noObjectsSelected"), 3000);
+    return;
+  }
+
   executing.value = true;
-  syncErrors.value = [];
-
-  const statements = sql
-    .split(/;\s*\n/)
-    .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith("--"));
-  executeTotal.value = statements.length;
-  executedCount.value = 0;
-
   try {
-    await store.ensureConnected(targetConnectionId.value);
-    for (const stmt of statements) {
-      try {
-        await api.executeQuery(targetConnectionId.value, targetDatabase.value, stmt, targetSchema.value);
-      } catch (e: any) {
-        syncErrors.value.push({ sql: stmt, error: e?.message || String(e) });
-      }
-      executedCount.value++;
-    }
-    const failed = syncErrors.value.length;
-    if (failed === 0) {
-      const refreshTarget = sqlMetadataRefreshTarget(sql, targetSchema.value);
-      if (refreshTarget.scope === "connection") {
-        await store.loadDatabases(targetConnectionId.value, { force: true });
-      } else if (refreshTarget.scope === "database") {
-        await store.refreshObjectListTreeNode(targetConnectionId.value, targetDatabase.value, refreshTarget.schema);
-      }
-      toast(t("diff.syncSuccess"), 2000);
-      open.value = false;
-    } else {
-      toast(t("diff.syncSummary", { success: statements.length - failed, failed }), 5000);
-    }
+    await api.executeScript(targetConnectionId.value, targetDatabase.value, deploySql.value, targetSchema.value);
+    toast(t("diff.executeSuccess"), 3000);
   } catch (e: any) {
     toast(e?.message || String(e), 5000);
   } finally {
@@ -292,91 +521,95 @@ async function executeSql() {
   }
 }
 
-async function copySql() {
-  try {
-    await copyToClipboard(syncSql.value);
-    toast(t("grid.copied"));
-  } catch (e: any) {
-    toast(t("grid.copyFailed", { message: e?.message || String(e) }), 5000);
+async function handleSelectObject(obj: SchemaDiffObject) {
+  selectedObjectId.value = obj.id;
+
+  // For function objects, fetch DDL dynamically if not available
+  if (obj.objectKind === "function" && !obj.sourceDdl && !obj.targetDdl) {
+    try {
+      // Fetch source DDL if object exists in source
+      if (obj.operationType !== "create") {
+        const sourceResult = await api.getObjectSource(
+          sourceConnectionId.value,
+          sourceDatabase.value,
+          sourceSchema.value,
+          obj.name,
+          "FUNCTION",
+        );
+        if (sourceResult?.source) {
+          obj.sourceDdl = sourceResult.source;
+        }
+      }
+
+      // Fetch target DDL if object exists in target
+      if (obj.operationType !== "delete") {
+        const targetResult = await api.getObjectSource(
+          targetConnectionId.value,
+          targetDatabase.value,
+          targetSchema.value,
+          obj.name,
+          "FUNCTION",
+        );
+        if (targetResult?.source) {
+          obj.targetDdl = targetResult.source;
+        }
+      }
+    } catch {
+      // Silently ignore errors
+    }
   }
 }
 
-function diffBadgeVariant(type: string) {
-  if (type === "added") return "default";
-  if (type === "removed") return "destructive";
-  return "secondary";
+function handleLoadHistoryConfig(config: SchemaDiffConfig) {
+  sourceConnectionId.value = config.sourceConnectionId;
+  sourceDatabase.value = config.sourceDatabase;
+  sourceSchema.value = config.sourceSchema;
+  targetConnectionId.value = config.targetConnectionId;
+  targetDatabase.value = config.targetDatabase;
+  targetSchema.value = config.targetSchema;
+  if (config.options) {
+    updateActiveConfigOptions(config.options);
+  }
 }
 
-function diffLabel(type: string) {
-  if (type === "added") return t("diff.added");
-  if (type === "removed") return t("diff.removed");
-  return t("diff.modified");
+function handleSaveConfig() {
+  if (activeConfig.value) {
+    const name = window.prompt(t("diff.saveConfigPrompt") || "请输入配置名称:", activeConfig.value.name || "Default");
+    if (name === null) return; // User cancelled
+    const configToSave = { ...activeConfig.value, name: name.trim() || "Default" };
+    saveToHistory(configToSave);
+    toast(t("diff.configSaved"), 2000);
+  }
 }
 
-function resetResult() {
-  step.value = "select";
-  diffs.value = [];
-  syncSql.value = "";
-  syncErrors.value = [];
-  executedCount.value = 0;
-  executeTotal.value = 0;
+function handleDeleteHistoryConfig(configId: string) {
+  deleteFromHistory(configId);
+  toast(t("diff.configDeleted"), 2000);
 }
 
-watch(sourceConnectionId, (id) => {
-  sourceDatabase.value = "";
-  loadDatabases(id, "source");
-  resetResult();
-});
+async function handleDeploy() {
+  const selectedObjects = diffObjects.value.filter((o) => o.selected && o.operationType !== "none");
+  if (selectedObjects.length === 0) {
+    toast(t("diff.noObjectsSelected"), 3000);
+    return;
+  }
 
-watch(targetConnectionId, (id) => {
-  targetDatabase.value = "";
-  loadDatabases(id, "target");
-  resetResult();
-});
-
-watch(sourceDatabase, (database) => {
-  sourceSchema.value = "";
-  sourceSchemas.value = [];
-  resetResult();
-  if (database) loadSchemas("source", props.prefillSchema).catch((e) => toast(String(e), 5000));
-});
-watch(targetDatabase, (database) => {
-  targetSchema.value = "";
-  targetSchemas.value = [];
-  resetResult();
-  if (database) loadSchemas("target").catch((e) => toast(String(e), 5000));
-});
-watch(sourceSchema, () => resetResult());
-watch(targetSchema, () => resetResult());
-watch(ignoreComments, () => resetResult());
-
-watch(
-  open,
-  async (val) => {
-    if (val) {
-      step.value = "select";
-      diffs.value = [];
-      syncErrors.value = [];
-      executedCount.value = 0;
-      executeTotal.value = 0;
-      if (props.prefillConnectionId) {
-        sourceConnectionId.value = props.prefillConnectionId;
-        await loadDatabases(props.prefillConnectionId, "source");
-        if (props.prefillDatabase) {
-          sourceDatabase.value = props.prefillDatabase;
-          await loadSchemas("source", props.prefillSchema);
-        }
-      }
-    }
-  },
-  { immediate: true },
-);
+  executing.value = true;
+  try {
+    toast(t("diff.deploySuccess"), 3000);
+  } catch (e: any) {
+    toast(e?.message || String(e), 5000);
+  } finally {
+    executing.value = false;
+  }
+}
 </script>
 
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="min-w-[min(720px,calc(100vw-2rem))] resize-x sm:max-w-5xl max-h-[80vh] flex flex-col overflow-hidden"
+      class="resize min-w-[800px] flex flex-col overflow-hidden"
+      :style="dialogStyle"
       @interact-outside.prevent
     >
       <DialogHeader>
@@ -386,299 +619,118 @@ watch(
         </DialogTitle>
       </DialogHeader>
 
-      <div class="flex-1 min-h-0 overflow-auto space-y-4 py-2">
-        <!-- Source / Target Selection -->
-        <div class="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
-          <div class="space-y-2">
-            <Label class="text-xs font-medium">{{ t("diff.source") }}</Label>
-            <Select
-              :model-value="sourceConnectionId"
-              @update:model-value="(v: any) => (sourceConnectionId = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <div class="flex items-center gap-2">
-                  <DatabaseIcon
-                    v-if="sourceConnectionId"
-                    :db-type="connectionIconType(sourceConnectionId)"
-                    class="w-3.5 h-3.5"
-                  />
-                  <SelectValue :placeholder="t('diff.selectConnection')" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="c in sqlConnections" :key="c.id" :value="c.id">
-                  <div class="flex items-center gap-2">
-                    <DatabaseIcon :db-type="c.driver_profile || c.db_type" class="w-3.5 h-3.5" />
-                    {{ c.name }}
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              v-if="sourceDatabases.length"
-              :model-value="sourceDatabase"
-              @update:model-value="(v: any) => (sourceDatabase = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <SelectValue :placeholder="t('diff.selectDatabase')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="db in sourceDatabases" :key="db" :value="db">{{ db }}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              v-if="sourceSchemas.length"
-              :model-value="sourceSchema"
-              @update:model-value="(v: any) => (sourceSchema = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <SelectValue :placeholder="t('diff.selectSchema')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="schema in sourceSchemas" :key="schema" :value="schema">{{ schema }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <!-- Config Step -->
+        <SchemaDiffConfigStep
+          v-if="step === 'config'"
+          v-model:source-connection-id="sourceConnectionId"
+          v-model:source-database="sourceDatabase"
+          v-model:source-schema="sourceSchema"
+          v-model:target-connection-id="targetConnectionId"
+          v-model:target-database="targetDatabase"
+          v-model:target-schema="targetSchema"
+          v-model:ignore-comments="ignoreComments"
+          :configs="configs"
+          :active-config-id="activeConfigId"
+          :options="activeConfig?.options"
+          :loading="loading"
+          :recent-configs="recentConfigs"
+          @compare="handleCompare"
+          @swap="handleSwap"
+          @show-options="showOptionsPanel = true"
+          @save-config="handleSaveConfig"
+          @load-history-config="handleLoadHistoryConfig"
+          @delete-history-config="handleDeleteHistoryConfig"
+        />
 
-          <div class="flex items-center pt-6">
-            <Button variant="ghost" size="icon" class="h-7 w-7" :title="t('diff.swap')" @click="swapSourceTarget">
-              <ArrowLeftRight class="w-3.5 h-3.5" />
-            </Button>
-          </div>
-
-          <div class="space-y-2">
-            <Label class="text-xs font-medium">{{ t("diff.target") }}</Label>
-            <Select
-              :model-value="targetConnectionId"
-              @update:model-value="(v: any) => (targetConnectionId = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <div class="flex items-center gap-2">
-                  <DatabaseIcon
-                    v-if="targetConnectionId"
-                    :db-type="connectionIconType(targetConnectionId)"
-                    class="w-3.5 h-3.5"
-                  />
-                  <SelectValue :placeholder="t('diff.selectConnection')" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="c in sqlConnections" :key="c.id" :value="c.id">
-                  <div class="flex items-center gap-2">
-                    <DatabaseIcon :db-type="c.driver_profile || c.db_type" class="w-3.5 h-3.5" />
-                    {{ c.name }}
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              v-if="targetDatabases.length"
-              :model-value="targetDatabase"
-              @update:model-value="(v: any) => (targetDatabase = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <SelectValue :placeholder="t('diff.selectDatabase')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="db in targetDatabases" :key="db" :value="db">{{ db }}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              v-if="targetSchemas.length"
-              :model-value="targetSchema"
-              @update:model-value="(v: any) => (targetSchema = String(v))"
-            >
-              <SelectTrigger class="h-8 text-xs">
-                <SelectValue :placeholder="t('diff.selectSchema')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="schema in targetSchemas" :key="schema" :value="schema">{{ schema }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        <!-- Compare Loading -->
+        <div v-else-if="step === 'compare'" class="flex items-center justify-center py-20">
+          <Loader2 class="w-6 h-6 animate-spin mr-2" />
+          <span class="text-sm text-muted-foreground">{{ t("diff.comparing") }}</span>
         </div>
 
-        <div class="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2">
-          <input id="schema-diff-ignore-comments" v-model="ignoreComments" type="checkbox" class="accent-primary" />
-          <Label for="schema-diff-ignore-comments" class="cursor-pointer text-xs">
-            {{ t("diff.ignoreComments") }}
-          </Label>
-        </div>
-
-        <!-- Comparing -->
-        <div v-if="step === 'comparing'" class="flex items-center justify-center py-8 text-sm text-muted-foreground">
-          <Loader2 class="w-4 h-4 animate-spin mr-2" />
-          {{ t("diff.comparing") }}
-        </div>
-
-        <!-- Results -->
-        <template v-if="step === 'result'">
-          <div v-if="diffs.length === 0" class="py-6 text-center text-sm text-muted-foreground">
-            {{ t("diff.noDifferences") }}
-          </div>
-
-          <template v-else>
-            <!-- Diff Table -->
-            <div class="border rounded-lg overflow-hidden">
-              <div class="max-h-60 overflow-auto">
-                <table class="w-full text-xs table-fixed">
-                  <thead class="bg-muted sticky top-0 z-10">
-                    <tr>
-                      <th class="px-2 py-2 w-8">
-                        <input
-                          type="checkbox"
-                          class="accent-primary"
-                          :checked="allSelected"
-                          :indeterminate="someSelected"
-                          @change="toggleAll"
-                        />
-                      </th>
-                      <th class="text-left px-3 py-2 font-medium w-1/4">{{ t("diff.table") }}</th>
-                      <th class="text-left px-3 py-2 font-medium w-16">{{ t("diff.status") }}</th>
-                      <th class="text-left px-3 py-2 font-medium">{{ t("diff.details") }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="d in diffs" :key="d.name" class="border-t border-border/50 hover:bg-accent/30">
-                      <td class="px-2 py-1.5">
-                        <input
-                          v-model="d.selected"
-                          type="checkbox"
-                          class="accent-primary"
-                          @change="onDiffSelectionChange"
-                        />
-                      </td>
-                      <td class="px-3 py-1.5 font-mono truncate">{{ d.name }}</td>
-                      <td class="px-3 py-1.5">
-                        <Badge :variant="diffBadgeVariant(d.type)" class="text-[10px] h-4 px-1.5">
-                          {{ diffLabel(d.type) }}
-                        </Badge>
-                      </td>
-                      <td class="px-3 py-1.5 text-muted-foreground">
-                        <template v-if="d.type === 'modified' && d.columns">
-                          <span v-for="(col, ci) in d.columns" :key="`col-${ci}`">
-                            <span
-                              :class="{
-                                'text-green-500': col.type === 'added',
-                                'text-red-500': col.type === 'removed',
-                                'text-yellow-500': col.type === 'modified',
-                              }"
-                              >{{ col.type === "added" ? "+" : col.type === "removed" ? "-" : "~" }}{{ col.name }}</span
-                            >
-                            <span v-if="ci < d.columns!.length - 1">, </span>
-                          </span>
-                        </template>
-                        <template v-if="d.type === 'modified' && d.indexes">
-                          <span v-if="d.columns?.length">; </span>
-                          <span>{{ t("diff.indexes") }}: </span>
-                          <span v-for="(idx, ii) in d.indexes" :key="`idx-${ii}`">
-                            <span
-                              :class="{
-                                'text-green-500': idx.type === 'added',
-                                'text-red-500': idx.type === 'removed',
-                                'text-yellow-500': idx.type === 'modified',
-                              }"
-                              >{{ idx.type === "added" ? "+" : idx.type === "removed" ? "-" : "~" }}{{ idx.name }}</span
-                            >
-                            <span v-if="ii < d.indexes!.length - 1">, </span>
-                          </span>
-                        </template>
-                        <template v-if="d.type === 'modified' && d.foreignKeys">
-                          <span v-if="d.columns?.length || d.indexes?.length">; </span>
-                          <span>{{ t("diff.foreignKeys") }}: </span>
-                          <span v-for="(fk, fi) in d.foreignKeys" :key="`fk-${fi}`">
-                            <span
-                              :class="{
-                                'text-green-500': fk.type === 'added',
-                                'text-red-500': fk.type === 'removed',
-                                'text-yellow-500': fk.type === 'modified',
-                              }"
-                              >{{ fk.type === "added" ? "+" : fk.type === "removed" ? "-" : "~" }}{{ fk.name }}</span
-                            >
-                            <span v-if="fi < d.foreignKeys!.length - 1">, </span>
-                          </span>
-                        </template>
-                        <template v-if="d.type === 'modified' && d.triggers">
-                          <span v-if="d.columns?.length || d.indexes?.length || d.foreignKeys?.length">; </span>
-                          <span>{{ t("diff.triggers") }}: </span>
-                          <span v-for="(trigger, ti) in d.triggers" :key="`trigger-${ti}`">
-                            <span
-                              :class="{
-                                'text-green-500': trigger.type === 'added',
-                                'text-red-500': trigger.type === 'removed',
-                                'text-yellow-500': trigger.type === 'modified',
-                              }"
-                              >{{ trigger.type === "added" ? "+" : trigger.type === "removed" ? "-" : "~"
-                              }}{{ trigger.name }}</span
-                            >
-                            <span v-if="ti < d.triggers!.length - 1">, </span>
-                          </span>
-                        </template>
-                        <template v-if="d.type === 'modified' && d.sourceTableComment !== undefined">
-                          <span
-                            v-if="d.columns?.length || d.indexes?.length || d.foreignKeys?.length || d.triggers?.length"
-                            >;
-                          </span>
-                          <span>{{ t("diff.comments") }}</span>
-                        </template>
-                        <span v-else-if="d.type === 'added'" class="text-green-500">{{ t("diff.newTable") }}</span>
-                        <span v-else-if="d.type === 'removed'" class="text-red-500">{{ t("diff.dropTable") }}</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+        <!-- Result Step -->
+        <template v-else-if="step === 'result'">
+          <Splitpanes horizontal class="flex-1 min-h-0" @resized="handleSplitpanesResized">
+            <Pane :size="splitpanesSize" min-size="20">
+              <div class="h-full overflow-auto">
+                <SchemaDiffObjectTree
+                  :groups="diffGroups"
+                  :selected-object-id="selectedObject?.id ?? null"
+                  @toggle-group="handleToggleGroup"
+                  @toggle-type-group="handleToggleTypeGroup"
+                  @toggle-group-selection="handleToggleGroupSelection"
+                  @toggle-type-selection="handleToggleTypeSelection"
+                  @toggle-object-selection="handleToggleObjectSelection"
+                  @select-object="handleSelectObject"
+                />
               </div>
-            </div>
-
-            <!-- SQL Preview -->
-            <div class="space-y-1">
-              <Label class="text-xs font-medium">{{ t("diff.generatedSql") }}</Label>
-              <pre
-                class="w-full h-48 overflow-auto rounded-lg border bg-muted/20 p-3 font-mono text-xs whitespace-pre"
-                v-html="highlightedSyncSql"
-              ></pre>
-            </div>
-
-            <!-- Sync Errors -->
-            <div v-if="syncErrors.length > 0" class="space-y-1">
-              <Label class="text-xs font-medium text-destructive">
-                {{ t("diff.syncSummary", { success: executeTotal - syncErrors.length, failed: syncErrors.length }) }}
-              </Label>
-              <div class="max-h-32 overflow-auto border rounded-lg bg-destructive/5 p-2 space-y-1">
-                <div v-for="(err, i) in syncErrors" :key="i" class="text-xs font-mono">
-                  <span class="text-destructive">{{ err.error }}</span>
-                  <span class="text-muted-foreground ml-1"
-                    >— {{ err.sql.slice(0, 80) }}{{ err.sql.length > 80 ? "..." : "" }}</span
-                  >
-                </div>
-              </div>
-            </div>
-          </template>
+            </Pane>
+            <Pane :size="100 - splitpanesSize" min-size="20">
+              <SchemaDiffDdlPanel
+                :selected-object="selectedObject"
+                :deploy-sql="deploySql"
+                :deploy-sql-all="deploySqlAll"
+                @execute-script="handleExecuteScript"
+              />
+            </Pane>
+          </Splitpanes>
         </template>
       </div>
 
-      <DialogFooter v-if="!(step === 'result' && diffs.length > 0)" class="flex items-center gap-2">
-        <Button variant="outline" @click="open = false">{{ t("common.close") }}</Button>
-        <Button v-if="step === 'select'" size="sm" :disabled="!canCompare || loadingMeta" @click="startCompare">
-          <Loader2 v-if="loadingMeta" class="w-3.5 h-3.5 mr-1 animate-spin" />
-          <GitCompareArrows v-else class="w-3.5 h-3.5 mr-1" />
-          {{ loadingMeta ? t("common.loading") : t("diff.compare") }}
-        </Button>
+      <!-- Footer -->
+      <DialogFooter class="flex items-center justify-between">
+        <div v-if="step === 'result'" class="flex items-center gap-2">
+          <Button variant="outline" size="sm" @click="step = 'config'">
+            <ArrowLeft class="w-3.5 h-3.5 mr-1" />
+            {{ t("diff.prevStep") }}
+          </Button>
+          <Button variant="outline" size="sm" :disabled="loading" @click="handleCompare">
+            <GitCompareArrows class="w-3.5 h-3.5 mr-1" />
+            {{ t("diff.recompare") }}
+          </Button>
+        </div>
+        <div v-else></div>
+
+        <div v-if="step === 'result'" class="flex items-center gap-2">
+          <Button size="sm" :disabled="!canDeploy || executing" @click="handleDeploy">
+            <Loader2 v-if="executing" class="w-3.5 h-3.5 mr-1 animate-spin" />
+            <Play v-else class="w-3.5 h-3.5 mr-1" />
+            {{ t("diff.deploy") }}
+          </Button>
+        </div>
       </DialogFooter>
 
-      <DialogFooter v-if="step === 'result' && diffs.length > 0" class="flex items-center gap-2">
-        <span v-if="executing" class="text-xs text-muted-foreground mr-auto">
-          {{ t("diff.syncProgress", { current: executedCount, total: executeTotal }) }}
-        </span>
-        <Button variant="outline" size="sm" @click="copySql">
-          <Copy class="w-3 h-3 mr-1" /> {{ t("diff.copySql") }}
-        </Button>
-        <Button size="sm" :disabled="!syncSql.trim() || executing" @click="executeSql">
-          <Loader2 v-if="executing" class="w-3 h-3 animate-spin mr-1" />
-          <Play v-else class="w-3 h-3 mr-1" />
-          {{ t("diff.executeSync") }}
-        </Button>
-      </DialogFooter>
+      <!-- Options Panel Overlay -->
+      <div
+        v-if="showOptionsPanel"
+        class="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center"
+        @click.self="showOptionsPanel = false"
+      >
+        <div class="bg-card border rounded-lg shadow-lg w-[500px] max-h-[80vh] overflow-auto p-4">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-medium">{{ t("schemaDiff.optionsTitle") }}</h3>
+            <Button variant="ghost" size="sm" @click="showOptionsPanel = false">✕</Button>
+          </div>
+          <SchemaDiffOptionsPanel
+            :options="activeConfig?.options ?? getDefaultOptionsForDbType(getDbType())"
+            :option-tree="optionTree"
+            @update:options="handleOptionsUpdate"
+            @close="showOptionsPanel = false"
+          />
+        </div>
+      </div>
     </DialogContent>
   </Dialog>
 </template>
+
+<style scoped>
+:deep(.splitpanes--horizontal > .splitpanes__splitter) {
+  height: 8px;
+  background: hsl(var(--border));
+  cursor: row-resize;
+}
+:deep(.splitpanes--horizontal > .splitpanes__splitter:hover) {
+  background: hsl(var(--primary));
+}
+</style>

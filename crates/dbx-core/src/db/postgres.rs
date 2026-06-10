@@ -20,7 +20,8 @@ use tokio_postgres::{Row, SimpleQueryMessage};
 use super::file_validator::validate_file_path;
 use crate::sql::starts_with_executable_sql_keyword;
 use crate::types::{
-    ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ObjectInfo, QueryResult, TableInfo, TriggerInfo,
+    ColumnInfo, DatabaseInfo, ForeignKeyInfo, FunctionInfo, IndexInfo, ObjectInfo, OwnerInfo, QueryResult, RuleInfo,
+    SequenceInfo, TableInfo, TriggerInfo,
 };
 
 fn pg_temporal_to_json_value(row: &Row, idx: usize) -> Option<serde_json::Value> {
@@ -1650,6 +1651,132 @@ pub async fn list_triggers(pool: &Pool, schema: &str, table: &str) -> Result<Vec
             name: row.get::<_, String>(0),
             event: row.get::<_, String>(1),
             timing: row.get::<_, String>(2),
+        })
+        .collect())
+}
+
+pub async fn list_functions(pool: &Pool, schema: &str) -> Result<Vec<FunctionInfo>, String> {
+    let client = pool.get().await.map_err(|e| e.to_string())?;
+    let stmt = client
+        .prepare_cached(
+            "SELECT routine_name, routine_type, COALESCE(data_type, ''), COALESCE(routine_definition, '') \
+             FROM information_schema.routines \
+             WHERE routine_schema = $1 AND routine_type IN ('FUNCTION', 'PROCEDURE') \
+             ORDER BY routine_name",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let rows = client.query(&stmt, &[&schema]).await.map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .iter()
+        .map(|row| FunctionInfo {
+            name: row.get::<_, String>(0),
+            function_type: row.get::<_, String>(1),
+            data_type: row.get::<_, String>(2),
+            definition: row.get::<_, String>(3),
+        })
+        .collect())
+}
+
+pub async fn list_sequences(pool: &Pool, schema: &str, with_last_values: bool) -> Result<Vec<SequenceInfo>, String> {
+    let client = pool.get().await.map_err(|e| e.to_string())?;
+    let stmt = client
+        .prepare_cached(
+            "SELECT sequencename, data_type, start_value, minimum_value, maximum_value, increment, cycle_option \
+             FROM pg_sequences \
+             WHERE schemaname = $1 \
+             ORDER BY sequencename",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let rows = client.query(&stmt, &[&schema]).await.map_err(|e| e.to_string())?;
+
+    let mut sequences: Vec<SequenceInfo> = rows
+        .iter()
+        .map(|row| SequenceInfo {
+            name: row.get::<_, String>(0),
+            data_type: row.get::<_, String>(1),
+            start_value: row.get::<_, String>(2),
+            min_value: row.get::<_, String>(3),
+            max_value: row.get::<_, String>(4),
+            increment: row.get::<_, String>(5),
+            cycle: row.get::<_, String>(6) == "YES",
+            last_value: None,
+        })
+        .collect();
+
+    if with_last_values {
+        for seq in &mut sequences {
+            let sql = format!("SELECT last_value FROM \"{}\".\"{}\"", schema, seq.name);
+            if let Ok(stmt) = client.prepare_cached(&sql).await {
+                if let Ok(rows) = client.query(&stmt, &[]).await {
+                    if let Some(row) = rows.first() {
+                        seq.last_value = Some(row.get::<_, String>(0));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(sequences)
+}
+
+pub async fn list_rules(pool: &Pool, schema: &str) -> Result<Vec<RuleInfo>, String> {
+    let client = pool.get().await.map_err(|e| e.to_string())?;
+    let stmt = client
+        .prepare_cached(
+            "SELECT schemaname, tablename, rulename, definition \
+             FROM pg_rules \
+             WHERE schemaname = $1 \
+             ORDER BY rulename",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let rows = client.query(&stmt, &[&schema]).await.map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .iter()
+        .map(|row| RuleInfo {
+            name: row.get::<_, String>(2),
+            table_name: row.get::<_, String>(1),
+            definition: row.get::<_, String>(3),
+        })
+        .collect())
+}
+
+pub async fn list_owners(pool: &Pool, schema: &str) -> Result<Vec<OwnerInfo>, String> {
+    let client = pool.get().await.map_err(|e| e.to_string())?;
+    let stmt = client
+        .prepare_cached(
+            "SELECT n.nspname, c.relname, c.relkind, pg_get_userbyid(c.relowner) \
+             FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let rows = client.query(&stmt, &[&schema]).await.map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let relkind: String = row.get(2);
+            let object_type = match relkind.as_str() {
+                "r" => "TABLE",
+                "v" => "VIEW",
+                "m" => "MATERIALIZED VIEW",
+                "S" => "SEQUENCE",
+                "f" => "FOREIGN TABLE",
+                "p" => "PARTITIONED TABLE",
+                "I" => "PARTITIONED INDEX",
+                _ => &relkind,
+            };
+            OwnerInfo {
+                object_name: row.get::<_, String>(1),
+                object_type: object_type.to_string(),
+                owner: row.get::<_, String>(3),
+            }
         })
         .collect())
 }

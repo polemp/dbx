@@ -1252,6 +1252,71 @@ pub async fn list_triggers_core(
     }
 }
 
+pub async fn list_functions_core(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<Vec<db::FunctionInfo>, String> {
+    let pool_key = state.get_or_create_pool(connection_id, Some(database)).await?;
+    let connections = state.connections.read().await;
+    let pool = connections.get(&pool_key).ok_or("Pool not found")?;
+
+    match pool {
+        PoolKind::Postgres(p) => db::postgres::list_functions(p, schema).await,
+        _ => Ok(vec![]),
+    }
+}
+
+pub async fn list_sequences_core(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+    with_last_values: bool,
+) -> Result<Vec<db::SequenceInfo>, String> {
+    let pool_key = state.get_or_create_pool(connection_id, Some(database)).await?;
+    let connections = state.connections.read().await;
+    let pool = connections.get(&pool_key).ok_or("Pool not found")?;
+
+    match pool {
+        PoolKind::Postgres(p) => db::postgres::list_sequences(p, schema, with_last_values).await,
+        _ => Ok(vec![]),
+    }
+}
+
+pub async fn list_rules_core(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<Vec<db::RuleInfo>, String> {
+    let pool_key = state.get_or_create_pool(connection_id, Some(database)).await?;
+    let connections = state.connections.read().await;
+    let pool = connections.get(&pool_key).ok_or("Pool not found")?;
+
+    match pool {
+        PoolKind::Postgres(p) => db::postgres::list_rules(p, schema).await,
+        _ => Ok(vec![]),
+    }
+}
+
+pub async fn list_owners_core(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<Vec<db::OwnerInfo>, String> {
+    let pool_key = state.get_or_create_pool(connection_id, Some(database)).await?;
+    let connections = state.connections.read().await;
+    let pool = connections.get(&pool_key).ok_or("Pool not found")?;
+
+    match pool {
+        PoolKind::Postgres(p) => db::postgres::list_owners(p, schema).await,
+        _ => Ok(vec![]),
+    }
+}
+
 pub async fn get_table_ddl_core(
     state: &AppState,
     connection_id: &str,

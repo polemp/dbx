@@ -9,6 +9,10 @@ import type {
   IndexInfo,
   ForeignKeyInfo,
   TriggerInfo,
+  FunctionInfo,
+  SequenceInfo,
+  RuleInfo,
+  OwnerInfo,
   QueryResult,
   SqlReferenceAnalysis,
   DatabaseType,
@@ -102,7 +106,15 @@ import type {
   DataComparePreparation,
   DataComparePreparationOptions,
 } from "@/lib/dataCompare";
-import type { SchemaDiffPreparation, SchemaDiffPreparationOptions, TableDiff } from "@/lib/schemaDiff";
+import type {
+  SchemaDiffPreparation,
+  SchemaDiffPreparationOptions,
+  TableDiff,
+  FunctionDiff,
+  SequenceDiff,
+  RuleDiff,
+  OwnerDiff,
+} from "@/lib/schemaDiff";
 import type { DataGridSavePreparation } from "./tauri";
 
 // ---------------------------------------------------------------------------
@@ -455,6 +467,29 @@ export async function getTableDdl(
   return get(`/api/schema/ddl?${qs({ connection_id: connectionId, database, schema, table })}`);
 }
 
+export async function listFunctions(connectionId: string, database: string, schema: string): Promise<FunctionInfo[]> {
+  return get(`/api/schema/functions?${qs({ connection_id: connectionId, database, schema })}`);
+}
+
+export async function listSequences(
+  connectionId: string,
+  database: string,
+  schema: string,
+  withLastValues: boolean,
+): Promise<SequenceInfo[]> {
+  return get(
+    `/api/schema/sequences?${qs({ connection_id: connectionId, database, schema, with_last_values: withLastValues ? 1 : 0 })}`,
+  );
+}
+
+export async function listRules(connectionId: string, database: string, schema: string): Promise<RuleInfo[]> {
+  return get(`/api/schema/rules?${qs({ connection_id: connectionId, database, schema })}`);
+}
+
+export async function listOwners(connectionId: string, database: string, schema: string): Promise<OwnerInfo[]> {
+  return get(`/api/schema/owners?${qs({ connection_id: connectionId, database, schema })}`);
+}
+
 export async function prepareSchemaDiff(options: SchemaDiffPreparationOptions): Promise<SchemaDiffPreparation> {
   return post("/api/schema-diff/prepare", options);
 }
@@ -463,8 +498,22 @@ export async function generateSchemaSyncSql(
   diffs: TableDiff[],
   databaseType: DatabaseType,
   targetSchema?: string,
+  functionDiffs?: FunctionDiff[],
+  sequenceDiffs?: SequenceDiff[],
+  ruleDiffs?: RuleDiff[],
+  ownerDiffs?: OwnerDiff[],
+  cascadeDelete?: boolean,
 ): Promise<string> {
-  return post("/api/schema-diff/generate-sync-sql", { diffs, databaseType, targetSchema });
+  return post("/api/schema-diff/generate-sync-sql", {
+    diffs,
+    databaseType,
+    targetSchema,
+    functionDiffs: functionDiffs ?? [],
+    sequenceDiffs: sequenceDiffs ?? [],
+    ruleDiffs: ruleDiffs ?? [],
+    ownerDiffs: ownerDiffs ?? [],
+    cascadeDelete: cascadeDelete ?? false,
+  });
 }
 
 // ---------------------------------------------------------------------------

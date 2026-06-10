@@ -220,14 +220,42 @@ export const DEFAULT_CUSTOM_THEME_COLORS: CustomThemeColors = {
   builtin: "#f38ba8",
 };
 
+export interface CustomThemeDdlColors {
+  addedRowBg: string;
+  addedRowBgAlpha: number;
+  removedRowBg: string;
+  removedRowBgAlpha: number;
+  modifiedRowBg: string;
+  modifiedRowBgAlpha: number;
+  modifiedCharBg: string;
+  modifiedCharBgAlpha: number;
+}
+
+export const DEFAULT_CUSTOM_THEME_DDL_COLORS: CustomThemeDdlColors = {
+  addedRowBg: "#22c55e",
+  addedRowBgAlpha: 10,
+  removedRowBg: "#ef4444",
+  removedRowBgAlpha: 10,
+  modifiedRowBg: "#eab308",
+  modifiedRowBgAlpha: 5,
+  modifiedCharBg: "#eab308",
+  modifiedCharBgAlpha: 50,
+};
+
 export interface CustomTheme {
   id: string;
   name: string;
   colors: CustomThemeColors;
+  ddlColors: CustomThemeDdlColors;
 }
 
 export const DEFAULT_CUSTOM_THEMES: CustomTheme[] = [
-  { id: "default", name: "自定义", colors: { ...DEFAULT_CUSTOM_THEME_COLORS } },
+  {
+    id: "default",
+    name: "自定义",
+    colors: { ...DEFAULT_CUSTOM_THEME_COLORS },
+    ddlColors: { ...DEFAULT_CUSTOM_THEME_DDL_COLORS },
+  },
 ];
 
 export interface EditorSettings {
@@ -438,8 +466,16 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     },
     customThemes: (() => {
       if (Array.isArray(settings.customThemes) && settings.customThemes.length > 0) {
-        // 自动重命名"默认"为"自定义"
-        return settings.customThemes.map((theme) => (theme.name === "默认" ? { ...theme, name: "自定义" } : theme));
+        // 自动重命名"默认"为"自定义"，并补齐缺失的 ddlColors
+        return settings.customThemes.map((theme) => {
+          const renamed = theme.name === "默认" ? { ...theme, name: "自定义" } : { ...theme };
+          return {
+            ...DEFAULT_CUSTOM_THEMES[0],
+            ...renamed,
+            colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...renamed.colors },
+            ddlColors: { ...DEFAULT_CUSTOM_THEME_DDL_COLORS, ...(renamed as any).ddlColors },
+          };
+        });
       }
       return [
         ...(settings.customThemeColors
@@ -448,6 +484,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
                 id: "migrated",
                 name: "已迁移",
                 colors: { ...DEFAULT_CUSTOM_THEME_COLORS, ...settings.customThemeColors },
+                ddlColors: { ...DEFAULT_CUSTOM_THEME_DDL_COLORS },
               },
             ]
           : []),

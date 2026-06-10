@@ -4,8 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import type { CustomTheme, CustomThemeColors } from "@/stores/settingsStore";
-import { DEFAULT_CUSTOM_THEME_COLORS } from "@/stores/settingsStore";
+import type { CustomTheme, CustomThemeColors, CustomThemeDdlColors } from "@/stores/settingsStore";
+import { DEFAULT_CUSTOM_THEME_COLORS, DEFAULT_CUSTOM_THEME_DDL_COLORS } from "@/stores/settingsStore";
 import { Plus, Trash2, Copy, Pencil, ChevronDown, Palette } from "@lucide/vue";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "vue-i18n";
@@ -31,6 +31,7 @@ const activeEditId = ref("");
 const jsonText = ref("");
 const renamingId = ref<string | null>(null);
 const renamingName = ref("");
+const mainTab = ref<"sql" | "ddl">("sql");
 
 watch(
   () => props.open,
@@ -60,6 +61,14 @@ const localColors = computed({
   },
 });
 
+const localDdlColors = computed({
+  get: () => activeTheme.value?.ddlColors ?? { ...DEFAULT_CUSTOM_THEME_DDL_COLORS },
+  set: (colors: CustomThemeDdlColors) => {
+    const theme = localThemes.value.find((t) => t.id === activeEditId.value);
+    if (theme) theme.ddlColors = { ...colors };
+  },
+});
+
 watch(
   localThemes,
   () => {
@@ -83,10 +92,44 @@ const colorItems = [
   { key: "foreground" as const, label: t("settings.customThemeForeground"), example: "Default text color", num: "⑫" },
 ];
 
+const ddlColorItems = [
+  {
+    key: "addedRowBg" as const,
+    label: t("settings.customThemeDdlAddedRow"),
+    alphaKey: "addedRowBgAlpha" as const,
+    num: "①",
+  },
+  {
+    key: "removedRowBg" as const,
+    label: t("settings.customThemeDdlRemovedRow"),
+    alphaKey: "removedRowBgAlpha" as const,
+    num: "②",
+  },
+  {
+    key: "modifiedRowBg" as const,
+    label: t("settings.customThemeDdlModifiedRow"),
+    alphaKey: "modifiedRowBgAlpha" as const,
+    num: "③",
+  },
+  {
+    key: "modifiedCharBg" as const,
+    label: t("settings.customThemeDdlModifiedChar"),
+    alphaKey: "modifiedCharBgAlpha" as const,
+    num: "④",
+  },
+];
+
+function toRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha / 100})`;
+}
+
 // Preset color themes (including all built-in themes)
 const presetThemes = [
   {
-    name: "Default",
+    name: "Custom",
     colors: { ...DEFAULT_CUSTOM_THEME_COLORS },
   },
   {
@@ -339,6 +382,13 @@ function handleColorChange(key: keyof CustomThemeColors, value: string) {
   }
 }
 
+function handleDdlColorChange(key: keyof CustomThemeDdlColors, value: string | number) {
+  const theme = localThemes.value.find((t) => t.id === activeEditId.value);
+  if (theme) {
+    theme.ddlColors = { ...theme.ddlColors, [key]: value };
+  }
+}
+
 function handleJsonChange() {
   try {
     const parsed = JSON.parse(jsonText.value);
@@ -367,6 +417,7 @@ function handleAddTheme() {
     id,
     name,
     colors: { ...DEFAULT_CUSTOM_THEME_COLORS },
+    ddlColors: { ...DEFAULT_CUSTOM_THEME_DDL_COLORS },
   });
   activeEditId.value = id;
 }
@@ -388,6 +439,7 @@ function handleDuplicateTheme(theme: CustomTheme) {
     id,
     name: `${theme.name}${t("settings.customThemeCopySuffix")}`,
     colors: { ...theme.colors },
+    ddlColors: { ...theme.ddlColors },
   });
   activeEditId.value = id;
 }
@@ -439,7 +491,7 @@ function handleImport() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-[860px] max-h-[90vh] overflow-hidden flex flex-col">
+    <DialogContent class="sm:max-w-[1032px] min-h-[720px] max-h-[95vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle>{{ t("settings.customThemeTitle") }}</DialogTitle>
       </DialogHeader>
@@ -490,73 +542,264 @@ function handleImport() {
 
         <!-- Edit area -->
         <div class="flex-1 min-w-0 overflow-hidden flex flex-col">
-          <Tabs defaultValue="visual" class="w-full flex-1 flex flex-col">
-            <TabsList class="grid w-full grid-cols-2">
-              <TabsTrigger value="visual">{{ t("settings.customThemeVisualEdit") }}</TabsTrigger>
-              <TabsTrigger value="json">{{ t("settings.customThemeJsonConfig") }}</TabsTrigger>
+          <!-- Main Tab: SQL vs DDL -->
+          <Tabs v-model="mainTab" class="w-full flex-1 flex flex-col">
+            <TabsList class="grid w-full grid-cols-2 mb-2">
+              <TabsTrigger value="sql">{{ t("settings.customThemeSqlTab") }}</TabsTrigger>
+              <TabsTrigger value="ddl">{{ t("settings.customThemeDdlTab") }}</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="visual" class="space-y-4 flex-1 overflow-y-auto pr-1">
-              <!-- Preview area -->
-              <div class="rounded-lg border bg-black/50 p-5 font-mono text-base">
-                <div class="mb-2 text-sm text-muted-foreground">{{ t("settings.customThemeLivePreview") }}</div>
-                <div class="leading-relaxed text-lg">
-                  <span v-for="(token, i) in previewCode" :key="i" :style="{ color: token.color }" class="inline">
-                    {{ token.text }}<sup v-if="token.num" class="text-xl opacity-60">{{ token.num }}</sup>
-                  </span>
+            <!-- SQL Theme Definition -->
+            <TabsContent value="sql" class="flex-1 min-h-0 flex flex-col">
+              <Tabs defaultValue="visual" class="w-full flex-1 flex flex-col">
+                <TabsList class="grid w-full grid-cols-2">
+                  <TabsTrigger value="visual">{{ t("settings.customThemeVisualEdit") }}</TabsTrigger>
+                  <TabsTrigger value="json">{{ t("settings.customThemeJsonConfig") }}</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="visual" class="space-y-4 flex-1 overflow-y-auto pr-1">
+                  <!-- Preview area -->
+                  <div class="rounded-lg border bg-black/50 p-5 font-mono text-base">
+                    <div class="mb-2 text-sm text-muted-foreground">{{ t("settings.customThemeLivePreview") }}</div>
+                    <div class="leading-relaxed text-lg">
+                      <span v-for="(token, i) in previewCode" :key="i" :style="{ color: token.color }" class="inline">
+                        {{ token.text }}<sup v-if="token.num" class="text-xl opacity-60">{{ token.num }}</sup>
+                      </span>
+                    </div>
+                    <div class="mt-2 text-lg" :style="{ color: localColors.comment }">
+                      <sup class="text-xl">⑥</sup> -- {{ t("settings.customThemePreviewExample") }}
+                    </div>
+                  </div>
+
+                  <!-- Preset color schemes -->
+                  <div class="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
+                    <Palette class="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span class="text-sm text-muted-foreground shrink-0">{{ t("settings.customThemePreset") }}:</span>
+                    <Select v-model="selectedPreset" class="flex-1">
+                      <SelectTrigger class="h-8 text-sm">
+                        <SelectValue :placeholder="t('settings.customThemeSelectPreset')" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="preset in presetThemes" :key="preset.name" :value="preset.name">
+                          {{ preset.name }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" class="h-8 shrink-0" @click="applyPreset">
+                      <Copy class="mr-1 h-3 w-3" />
+                      {{ t("settings.customThemeApply") }}
+                    </Button>
+                  </div>
+
+                  <!-- Color configuration list -->
+                  <div class="grid grid-cols-2 gap-3">
+                    <div
+                      v-for="item in colorItems"
+                      :key="item.key"
+                      class="relative flex items-center gap-3 rounded-lg border p-3"
+                    >
+                      <span class="text-xl font-bold w-8 text-center shrink-0">{{ item.num }}</span>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-medium text-sm">{{ item.label }}</div>
+                        <div class="text-xs text-muted-foreground truncate">{{ item.example }}</div>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <div class="relative">
+                          <button
+                            type="button"
+                            class="flex items-center gap-0.5 rounded border p-0.5 hover:bg-muted transition-colors"
+                            @click.stop="togglePalette(item.key)"
+                          >
+                            <div class="h-6 w-6 rounded-sm" :style="{ backgroundColor: localColors[item.key] }" />
+                            <ChevronDown class="h-3 w-3 text-muted-foreground pointer-events-none" />
+                          </button>
+                          <div
+                            v-if="expandedPalette === item.key"
+                            class="absolute right-0 top-full z-50 mt-1 rounded-lg border bg-popover p-2 shadow-lg"
+                            @click.stop
+                          >
+                            <div class="space-y-1">
+                              <div v-for="(row, rowIndex) in basicColors" :key="rowIndex" class="flex gap-1">
+                                <button
+                                  v-for="color in row"
+                                  :key="color"
+                                  type="button"
+                                  class="h-5 w-5 rounded-sm border border-border/50 hover:scale-110 transition-transform"
+                                  :style="{ backgroundColor: color }"
+                                  @click="applyBasicColor(item.key, color)"
+                                />
+                              </div>
+                            </div>
+                            <div class="mt-2 pt-2 border-t flex items-center gap-2">
+                              <input
+                                type="color"
+                                :value="localColors[item.key]"
+                                @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                                class="h-6 w-6 cursor-pointer rounded border-0 p-0"
+                              />
+                              <input
+                                type="text"
+                                :value="localColors[item.key]"
+                                @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                                class="w-20 rounded border px-2 py-0.5 text-xs font-mono"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="json" class="space-y-4 flex-1 flex flex-col min-h-[400px]">
+                  <textarea
+                    v-model="jsonText"
+                    @blur="handleJsonChange"
+                    class="flex-1 w-full rounded-lg border bg-black/50 p-4 font-mono text-sm min-h-[360px]"
+                    spellcheck="false"
+                  />
+                  <div class="flex gap-2">
+                    <Button variant="outline" size="sm" @click="handleImport">{{
+                      t("settings.customThemePasteImport")
+                    }}</Button>
+                    <Button variant="outline" size="sm" @click="handleExport">{{
+                      t("settings.customThemeExportJson")
+                    }}</Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+
+            <!-- DDL Compare Theme Definition -->
+            <TabsContent value="ddl" class="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pr-1">
+              <!-- DDL Preview -->
+              <div class="rounded-lg border p-3 space-y-2">
+                <div class="text-sm text-muted-foreground">{{ t("settings.customThemeDdlPreview") }}</div>
+                <div class="grid grid-cols-2 divide-x divide-border">
+                  <!-- Source DDL -->
+                  <div class="pr-2">
+                    <div class="text-xs font-medium text-muted-foreground mb-1">{{ t("diff.sourceDdl") }}</div>
+                    <div class="font-mono text-xs leading-relaxed space-y-0.5">
+                      <div
+                        :style="{
+                          backgroundColor: toRgba(localDdlColors.modifiedRowBg, localDdlColors.modifiedRowBgAlpha),
+                        }"
+                      >
+                        <span>CREATE TABLE users (</span>
+                      </div>
+                      <div>
+                        <span> id INT,</span>
+                      </div>
+                      <div>
+                        <span> email VARCHAR(100),</span>
+                      </div>
+                      <div
+                        :style="{
+                          backgroundColor: toRgba(localDdlColors.modifiedRowBg, localDdlColors.modifiedRowBgAlpha),
+                        }"
+                      >
+                        <span> name </span>
+                        <span
+                          :style="{
+                            backgroundColor: toRgba(localDdlColors.modifiedCharBg, localDdlColors.modifiedCharBgAlpha),
+                          }"
+                          >VARCHAR(50)</span
+                        >
+                      </div>
+                      <div>
+                        <span> age INT</span>
+                      </div>
+                      <div>
+                        <span>);</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Target DDL -->
+                  <div class="pl-2">
+                    <div class="text-xs font-medium text-muted-foreground mb-1">{{ t("diff.targetDdl") }}</div>
+                    <div class="font-mono text-xs leading-relaxed space-y-0.5">
+                      <div
+                        :style="{
+                          backgroundColor: toRgba(localDdlColors.modifiedRowBg, localDdlColors.modifiedRowBgAlpha),
+                        }"
+                      >
+                        <span>CREATE TABLE users (</span>
+                      </div>
+                      <div>
+                        <span> id INT,</span>
+                      </div>
+                      <div>
+                        <span> email VARCHAR(100),</span>
+                      </div>
+                      <div
+                        :style="{
+                          backgroundColor: toRgba(localDdlColors.modifiedRowBg, localDdlColors.modifiedRowBgAlpha),
+                        }"
+                      >
+                        <span> name </span>
+                        <span
+                          :style="{
+                            backgroundColor: toRgba(localDdlColors.modifiedCharBg, localDdlColors.modifiedCharBgAlpha),
+                          }"
+                          >VARCHAR(100)</span
+                        >
+                      </div>
+                      <div>
+                        <span> age INT</span>
+                      </div>
+                      <div>
+                        <span>);</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="mt-2 text-lg" :style="{ color: localColors.comment }">
-                  <sup class="text-xl">⑥</sup> -- {{ t("settings.customThemePreviewExample") }}
+                <div class="grid grid-cols-2 divide-x divide-border pt-1">
+                  <div class="pr-2 space-y-0.5">
+                    <div
+                      :style="{
+                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                      }"
+                    >
+                      <span class="font-mono text-xs">DROP TABLE old_users;</span>
+                    </div>
+                  </div>
+                  <div class="pl-2 space-y-0.5">
+                    <div
+                      :style="{ backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha) }"
+                    >
+                      <span class="font-mono text-xs">CREATE TABLE new_orders (id INT);</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <!-- Preset color schemes -->
-              <div class="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
-                <Palette class="h-4 w-4 text-muted-foreground shrink-0" />
-                <span class="text-sm text-muted-foreground shrink-0">{{ t("settings.customThemePreset") }}:</span>
-                <Select v-model="selectedPreset" class="flex-1">
-                  <SelectTrigger class="h-8 text-sm">
-                    <SelectValue :placeholder="t('settings.customThemeSelectPreset')" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="preset in presetThemes" :key="preset.name" :value="preset.name">
-                      {{ preset.name }}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="sm" class="h-8 shrink-0" @click="applyPreset">
-                  <Copy class="mr-1 h-3 w-3" />
-                  {{ t("settings.customThemeApply") }}
-                </Button>
-              </div>
-
-              <!-- Color configuration list -->
+              <!-- DDL Color configuration list -->
               <div class="grid grid-cols-2 gap-3">
                 <div
-                  v-for="item in colorItems"
+                  v-for="item in ddlColorItems"
                   :key="item.key"
                   class="relative flex items-center gap-3 rounded-lg border p-3"
                 >
                   <span class="text-xl font-bold w-8 text-center shrink-0">{{ item.num }}</span>
                   <div class="flex-1 min-w-0">
                     <div class="font-medium text-sm">{{ item.label }}</div>
-                    <div class="text-xs text-muted-foreground truncate">{{ item.example }}</div>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
-                    <!-- Color square + dropdown arrow -->
                     <div class="relative">
                       <button
                         type="button"
                         class="flex items-center gap-0.5 rounded border p-0.5 hover:bg-muted transition-colors"
                         @click.stop="togglePalette(item.key)"
                       >
-                        <div class="h-6 w-6 rounded-sm" :style="{ backgroundColor: localColors[item.key] }" />
+                        <div
+                          class="h-6 w-6 rounded-sm"
+                          :style="{ backgroundColor: toRgba(localDdlColors[item.key], localDdlColors[item.alphaKey]) }"
+                        />
                         <ChevronDown class="h-3 w-3 text-muted-foreground pointer-events-none" />
                       </button>
-                      <!-- Palette popup -->
                       <div
                         v-if="expandedPalette === item.key"
-                        class="absolute right-0 top-full z-50 mt-1 rounded-lg border bg-popover p-2 shadow-lg"
+                        class="absolute right-0 top-full z-50 mt-1 rounded-lg border bg-popover p-2 shadow-lg w-52"
                         @click.stop
                       >
                         <div class="space-y-1">
@@ -567,45 +810,45 @@ function handleImport() {
                               type="button"
                               class="h-5 w-5 rounded-sm border border-border/50 hover:scale-110 transition-transform"
                               :style="{ backgroundColor: color }"
-                              @click="applyBasicColor(item.key, color)"
+                              @click="
+                                handleDdlColorChange(item.key, color);
+                                expandedPalette = null;
+                              "
                             />
                           </div>
                         </div>
                         <div class="mt-2 pt-2 border-t flex items-center gap-2">
                           <input
                             type="color"
-                            :value="localColors[item.key]"
-                            @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                            :value="localDdlColors[item.key]"
+                            @input="handleDdlColorChange(item.key, ($event.target as HTMLInputElement).value)"
                             class="h-6 w-6 cursor-pointer rounded border-0 p-0"
                           />
                           <input
                             type="text"
-                            :value="localColors[item.key]"
-                            @input="handleColorChange(item.key, ($event.target as HTMLInputElement).value)"
+                            :value="localDdlColors[item.key]"
+                            @input="handleDdlColorChange(item.key, ($event.target as HTMLInputElement).value)"
                             class="w-20 rounded border px-2 py-0.5 text-xs font-mono"
                           />
+                        </div>
+                        <div class="mt-2 pt-2 border-t flex items-center gap-2">
+                          <span class="text-xs text-muted-foreground">{{ t("settings.customThemeOpacity") }}:</span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            :value="localDdlColors[item.alphaKey]"
+                            @input="
+                              handleDdlColorChange(item.alphaKey, parseInt(($event.target as HTMLInputElement).value))
+                            "
+                            class="flex-1"
+                          />
+                          <span class="text-xs font-mono w-8 text-right">{{ localDdlColors[item.alphaKey] }}%</span>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="json" class="space-y-4 flex-1 flex flex-col min-h-[400px]">
-              <textarea
-                v-model="jsonText"
-                @blur="handleJsonChange"
-                class="flex-1 w-full rounded-lg border bg-black/50 p-4 font-mono text-sm min-h-[360px]"
-                spellcheck="false"
-              />
-              <div class="flex gap-2">
-                <Button variant="outline" size="sm" @click="handleImport">{{
-                  t("settings.customThemePasteImport")
-                }}</Button>
-                <Button variant="outline" size="sm" @click="handleExport">{{
-                  t("settings.customThemeExportJson")
-                }}</Button>
               </div>
             </TabsContent>
           </Tabs>
