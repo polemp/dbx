@@ -266,9 +266,10 @@ function formatObjectName(obj: SchemaDiffObject): string {
               :class="{ 'bg-primary/10': selectedObjectId === obj.id }"
               @click="$emit('selectObject', obj)"
             >
-              <!-- Source (hide for create objects) -->
-              <div v-if="obj.operationType !== 'create'" class="flex items-center gap-2 min-w-0">
+              <!-- Source (hide for delete objects) -->
+              <div v-if="obj.operationType !== 'delete'" class="flex items-center gap-2 min-w-0">
                 <input
+                  v-if="obj.operationType !== 'delete'"
                   type="checkbox"
                   class="accent-primary shrink-0"
                   :checked="obj.selected"
@@ -280,10 +281,7 @@ function formatObjectName(obj: SchemaDiffObject): string {
                   class="w-3.5 h-3.5 shrink-0"
                   :class="getObjectIconColor(obj.objectKind)"
                 />
-                <span
-                  class="text-xs truncate"
-                  :class="obj.operationType === 'delete' ? 'text-red-500 line-through' : ''"
-                >
+                <span class="text-xs truncate" :class="obj.operationType === 'create' ? 'text-green-500' : ''">
                   {{
                     obj.sourceName
                       ? obj.objectKind === "function" && obj.arguments
@@ -304,10 +302,10 @@ function formatObjectName(obj: SchemaDiffObject): string {
                 />
               </div>
 
-              <!-- Target (hide for delete objects) -->
-              <div v-if="obj.operationType !== 'delete'" class="flex items-center gap-2 min-w-0">
+              <!-- Target (hide for create objects) -->
+              <div v-if="obj.operationType !== 'create'" class="flex items-center gap-2 min-w-0">
                 <input
-                  v-if="obj.operationType === 'create'"
+                  v-if="obj.operationType === 'delete'"
                   type="checkbox"
                   class="accent-primary shrink-0"
                   :checked="obj.selected"
@@ -319,7 +317,10 @@ function formatObjectName(obj: SchemaDiffObject): string {
                   class="w-3.5 h-3.5 shrink-0"
                   :class="getObjectIconColor(obj.objectKind)"
                 />
-                <span class="text-xs truncate" :class="obj.operationType === 'create' ? 'text-green-500' : ''">
+                <span
+                  class="text-xs truncate"
+                  :class="obj.operationType === 'delete' ? 'text-red-500 line-through' : ''"
+                >
                   {{
                     obj.targetName
                       ? obj.objectKind === "function" && obj.arguments
