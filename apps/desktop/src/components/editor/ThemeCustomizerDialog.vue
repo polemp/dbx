@@ -753,28 +753,38 @@ function handleImport() {
                     </div>
                   </div>
                 </div>
-                <!-- Source-only row: source has it, target doesn't (will be created) -->
-                <div class="pt-2 space-y-0.5">
-                  <div class="text-xs text-muted-foreground">{{ t("diff.sourceDdl") }} — {{ t("diff.added") }}</div>
-                  <div
-                    class="font-mono text-xs px-1 py-0.5"
-                    :style="{
-                      backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
-                    }"
-                  >
-                    DROP TABLE old_users;
+                <!-- Added/Removed rows: side-by-side like modify diff -->
+                <div class="grid grid-cols-2 divide-x divide-border pt-2">
+                  <!-- Source side: object exists in source, will be created in target -->
+                  <div class="pr-2 space-y-0.5">
+                    <div
+                      class="font-mono text-xs px-1 py-0.5"
+                      :style="{
+                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                      }"
+                    >
+                      CREATE TABLE new_orders (
+                    </div>
+                    <div
+                      class="font-mono text-xs px-1 py-0.5"
+                      :style="{
+                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                      }"
+                    >
+                      id INT);
+                    </div>
                   </div>
-                </div>
-                <!-- Target-only row: target has it, source doesn't (will be dropped) -->
-                <div class="pt-2 space-y-0.5">
-                  <div class="text-xs text-muted-foreground">{{ t("diff.targetDdl") }} — {{ t("diff.removed") }}</div>
-                  <div
-                    class="font-mono text-xs px-1 py-0.5"
-                    :style="{
-                      backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
-                    }"
-                  >
-                    CREATE TABLE new_orders (id INT);
+                  <!-- Target side: object exists in target, will be dropped from target -->
+                  <div class="pl-2 space-y-0.5">
+                    <div
+                      class="font-mono text-xs px-1 py-0.5"
+                      :style="{
+                        backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
+                      }"
+                    >
+                      DROP TABLE old_users;
+                    </div>
+                    <div class="font-mono text-xs px-1 py-0.5 min-h-[20px]">&nbsp;</div>
                   </div>
                 </div>
               </div>
