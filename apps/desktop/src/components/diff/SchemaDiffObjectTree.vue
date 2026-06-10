@@ -179,6 +179,13 @@ function onObjectCheckboxChange(obj: SchemaDiffObject, event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
   emit("toggleObjectSelection", obj.id, checked);
 }
+
+function formatObjectName(obj: SchemaDiffObject): string {
+  if (obj.objectKind === "function" && obj.arguments) {
+    return `${obj.name}(${obj.arguments})`;
+  }
+  return obj.name;
+}
 </script>
 
 <template>
@@ -277,7 +284,13 @@ function onObjectCheckboxChange(obj: SchemaDiffObject, event: Event) {
                   class="text-xs truncate"
                   :class="obj.operationType === 'delete' ? 'text-red-500 line-through' : ''"
                 >
-                  {{ obj.sourceName || obj.name }}
+                  {{
+                    obj.sourceName
+                      ? obj.objectKind === "function" && obj.arguments
+                        ? `${obj.sourceName}(${obj.arguments})`
+                        : obj.sourceName
+                      : formatObjectName(obj)
+                  }}
                 </span>
               </div>
 
@@ -298,7 +311,13 @@ function onObjectCheckboxChange(obj: SchemaDiffObject, event: Event) {
                   :class="getObjectIconColor(obj.objectKind)"
                 />
                 <span class="text-xs truncate" :class="obj.operationType === 'create' ? 'text-green-500' : ''">
-                  {{ obj.targetName || obj.name }}
+                  {{
+                    obj.targetName
+                      ? obj.objectKind === "function" && obj.arguments
+                        ? `${obj.targetName}(${obj.arguments})`
+                        : obj.targetName
+                      : formatObjectName(obj)
+                  }}
                 </span>
               </div>
             </div>

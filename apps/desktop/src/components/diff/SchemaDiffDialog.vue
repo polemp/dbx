@@ -524,8 +524,13 @@ async function handleExecuteScript() {
 async function handleSelectObject(obj: SchemaDiffObject) {
   selectedObjectId.value = obj.id;
 
-  // For function objects, fetch DDL dynamically if not available
-  if (obj.objectKind === "function" && !obj.sourceDdl && !obj.targetDdl) {
+  // Dynamically fetch DDL for objects that don't have pre-generated DDL
+  // (functions and views need runtime retrieval)
+  const needsDynamicDdl =
+    (obj.objectKind === "function" || obj.objectKind === "view") && !obj.sourceDdl && !obj.targetDdl;
+
+  if (needsDynamicDdl) {
+    const objectType = obj.objectKind === "view" ? "VIEW" : "FUNCTION";
     try {
       // Fetch source DDL if object exists in source
       if (obj.operationType !== "create") {
@@ -534,7 +539,7 @@ async function handleSelectObject(obj: SchemaDiffObject) {
           sourceDatabase.value,
           sourceSchema.value,
           obj.name,
-          "FUNCTION",
+          objectType,
         );
         if (sourceResult?.source) {
           obj.sourceDdl = sourceResult.source;
@@ -548,7 +553,7 @@ async function handleSelectObject(obj: SchemaDiffObject) {
           targetDatabase.value,
           targetSchema.value,
           obj.name,
-          "FUNCTION",
+          objectType,
         );
         if (targetResult?.source) {
           obj.targetDdl = targetResult.source;

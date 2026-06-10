@@ -232,9 +232,9 @@ export interface CustomThemeDdlColors {
 }
 
 export const DEFAULT_CUSTOM_THEME_DDL_COLORS: CustomThemeDdlColors = {
-  addedRowBg: "#22c55e",
+  addedRowBg: "#ef4444",
   addedRowBgAlpha: 10,
-  removedRowBg: "#ef4444",
+  removedRowBg: "#22c55e",
   removedRowBgAlpha: 10,
   modifiedRowBg: "#eab308",
   modifiedRowBgAlpha: 5,

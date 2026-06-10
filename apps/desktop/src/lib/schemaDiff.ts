@@ -152,6 +152,8 @@ export interface SchemaDiffObject {
   deploySql?: string;
   changes?: string[];
   children?: SchemaDiffObject[];
+  /** Function arguments signature (for PostgreSQL overloaded functions) */
+  arguments?: string;
 }
 
 export interface SchemaDiffGroup {
@@ -258,11 +260,13 @@ export function convertToSchemaDiffObjects(
   }
 
   for (const diff of functionDiffs) {
+    const args = diff.source?.arguments || diff.target?.arguments || "";
     objects.push({
-      id: `func-${diff.name}`,
+      id: `func-${diff.name}-${args}`,
       operationType: getOperationType(diff.type),
       objectKind: "function",
       name: diff.name,
+      arguments: args,
       sourceName: diff.type === "added" ? undefined : diff.name,
       targetName: diff.type === "removed" ? undefined : diff.name,
       selected: true,
