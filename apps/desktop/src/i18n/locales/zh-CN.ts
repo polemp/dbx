@@ -1535,7 +1535,6 @@ export default {
     nextStepDeploy: "下一步（审核部署）",
     deployReview: "部署审核",
     backToResult: "返回结果",
-    copyScript: "复制脚本",
     exportSql: "导出 .sql",
     deployToServer: "部署到服务器",
     deployConfirmTitle: "最终确认",

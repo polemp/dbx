@@ -81,29 +81,6 @@ function splitLines(value: string): string[] {
   return lines;
 }
 
-function levenshteinDistance(a: string, b: string): number {
-  const matrix: number[][] = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      matrix[i][j] =
-        b.charAt(i - 1) === a.charAt(j - 1)
-          ? matrix[i - 1][j - 1]
-          : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-    }
-  }
-  return matrix[b.length][a.length];
-}
-
-function computeSimilarity(a: string, b: string): number {
-  if (a === b) return 1;
-  const longer = a.length > b.length ? a : b;
-  if (longer.length === 0) return 1;
-  const distance = levenshteinDistance(a, b);
-  return (longer.length - distance) / longer.length;
-}
-
 function computeCharDiffs(source: string, target: string): { source: string; target: string }[] {
   const result: { source: string; target: string }[] = [];
   let sIdx = 0;
@@ -164,30 +141,63 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
 
 function mergePatches(patches: Array<{ value: string; added?: boolean; removed?: boolean }>): MergedPatch[] {
   const result: MergedPatch[] = [];
-  for (let i = 0; i < patches.length; i++) {
+  let i = 0;
+  while (i < patches.length) {
     const curr = patches[i];
-    const next = patches[i + 1];
-    if (curr.removed && next?.added) {
-      const similarity = computeSimilarity(curr.value, next.value);
-      if (similarity > 0.3) {
-        result.push({ type: "modify", leftValue: curr.value, rightValue: next.value });
-        i++;
-        continue;
+    if (curr.removed) {
+      // Collect consecutive removed blocks
+      const removedParts: string[] = [curr.value];
+      let j = i + 1;
+      while (j < patches.length && patches[j].removed) {
+        removedParts.push(patches[j].value);
+        j++;
       }
-    }
-    if (!curr.added && !curr.removed) {
-      result.push({ type: "equal", leftValue: curr.value, rightValue: curr.value });
-    } else if (curr.removed) {
-      result.push({ type: "delete", leftValue: curr.value, rightValue: "" });
+      // Collect consecutive added blocks immediately following the removed ones
+      const addedParts: string[] = [];
+      while (j < patches.length && patches[j].added) {
+        addedParts.push(patches[j].value);
+        j++;
+      }
+      if (addedParts.length > 0) {
+        result.push({
+          type: "modify",
+          leftValue: removedParts.join(""),
+          rightValue: addedParts.join(""),
+        });
+      } else {
+        result.push({ type: "delete", leftValue: removedParts.join(""), rightValue: "" });
+      }
+      i = j;
     } else if (curr.added) {
-      result.push({ type: "insert", leftValue: "", rightValue: curr.value });
+      const addedParts: string[] = [curr.value];
+      let j = i + 1;
+      while (j < patches.length && patches[j].added) {
+        addedParts.push(patches[j].value);
+        j++;
+      }
+      result.push({ type: "insert", leftValue: "", rightValue: addedParts.join("") });
+      i = j;
+    } else {
+      result.push({ type: "equal", leftValue: curr.value, rightValue: curr.value });
+      i++;
     }
   }
   return result;
 }
 
+function normalizeDdl(ddl: string): string {
+  return ddl
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n");
+}
+
 function computeDiffRows(sourceDdl: string, targetDdl: string): DiffRow[] {
-  const patches = diffLines(sourceDdl, targetDdl, { newlineIsToken: false });
+  const normalizedSource = normalizeDdl(sourceDdl);
+  const normalizedTarget = normalizeDdl(targetDdl);
+  const patches = diffLines(normalizedSource, normalizedTarget, { newlineIsToken: false });
   const merged = mergePatches(patches);
   const rows: DiffRow[] = [];
   let leftLineNum = 1;

@@ -269,7 +269,6 @@ function formatObjectName(obj: SchemaDiffObject): string {
               <!-- Source (hide for delete objects) -->
               <div v-if="obj.operationType !== 'delete'" class="flex items-center gap-2 min-w-0">
                 <input
-                  v-if="obj.operationType !== 'delete'"
                   type="checkbox"
                   class="accent-primary shrink-0"
                   :checked="obj.selected"

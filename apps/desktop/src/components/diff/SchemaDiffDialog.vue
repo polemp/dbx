@@ -26,6 +26,7 @@ import SchemaDiffOptionsPanel from "@/components/diff/SchemaDiffOptionsPanel.vue
 import { getSchemaDiffOptionsForDbType } from "@/lib/schemaDiffOptions";
 import { getDefaultOptionsForDbType } from "@/types/schemaDiff";
 import type { SchemaDiffCompareOptions, SchemaDiffConfig } from "@/types/schemaDiff";
+import type { ObjectSourceKind } from "@/types/database";
 import {
   convertToSchemaDiffObjects,
   groupDiffObjects,
@@ -33,7 +34,6 @@ import {
   type SchemaDiffObject,
   type DiffOperationType,
   type DiffObjectKind,
-  type TableSchemaDetail,
   type SchemaDiffPreparation,
 } from "@/lib/schemaDiff";
 import { Splitpanes, Pane } from "splitpanes";
@@ -306,31 +306,32 @@ async function handleCompare() {
       api.listTables(targetConnectionId.value, targetDatabase.value, targetSchema.value),
     ]);
 
-    // Load schema details
-    const sourceDetails: TableSchemaDetail[] = [];
-    const targetDetails: TableSchemaDetail[] = [];
+    // Load schema details in parallel
+    const sourceDetails = await Promise.all(
+      srcTables.map(async (table) => {
+        const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
+          api.getColumns(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+          api.listIndexes(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+          api.listForeignKeys(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+          api.listTriggers(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+          api.getTableDdl(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
+        ]);
+        return { name: table.name, columns, indexes, foreignKeys, triggers, ddl };
+      }),
+    );
 
-    for (const table of srcTables) {
-      const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
-        api.getColumns(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
-        api.listIndexes(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
-        api.listForeignKeys(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
-        api.listTriggers(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
-        api.getTableDdl(sourceConnectionId.value, sourceDatabase.value, sourceSchema.value, table.name),
-      ]);
-      sourceDetails.push({ name: table.name, columns, indexes, foreignKeys, triggers, ddl });
-    }
-
-    for (const table of tgtTables) {
-      const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
-        api.getColumns(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
-        api.listIndexes(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
-        api.listForeignKeys(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
-        api.listTriggers(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
-        api.getTableDdl(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
-      ]);
-      targetDetails.push({ name: table.name, columns, indexes, foreignKeys, triggers, ddl });
-    }
+    const targetDetails = await Promise.all(
+      tgtTables.map(async (table) => {
+        const [columns, indexes, foreignKeys, triggers, ddl] = await Promise.all([
+          api.getColumns(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+          api.listIndexes(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+          api.listForeignKeys(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+          api.listTriggers(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+          api.getTableDdl(targetConnectionId.value, targetDatabase.value, targetSchema.value, table.name),
+        ]);
+        return { name: table.name, columns, indexes, foreignKeys, triggers, ddl };
+      }),
+    );
 
     const targetConfig = store.getConfig(targetConnectionId.value);
     const dbType = targetConfig?.db_type || "mysql";
@@ -569,7 +570,7 @@ async function handleSelectObject(obj: SchemaDiffObject) {
 
   // Dynamically fetch DDL for objects that don't have pre-generated DDL
   // (views need runtime retrieval; functions should already have definition)
-  const objectTypeMap: Record<string, string> = {
+  const objectTypeMap: Record<string, ObjectSourceKind> = {
     function: "FUNCTION",
     view: "VIEW",
   };

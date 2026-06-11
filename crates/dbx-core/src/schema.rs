@@ -1885,7 +1885,7 @@ pub async fn pg_ddl(pool: &deadpool_postgres::Pool, schema: &str, table: &str) -
     Ok(render_postgres_table_ddl(schema, table, &columns, &indexes, &fkeys))
 }
 
-fn render_postgres_table_ddl(
+pub fn render_postgres_table_ddl(
     schema: &str,
     table: &str,
     columns: &[db::ColumnInfo],

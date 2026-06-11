@@ -760,7 +760,7 @@ pub async fn connect(url: &str, fallback_timeout: Duration) -> Result<Pool, Stri
             mgr_config,
         );
         let pool = Pool::builder(mgr)
-            .max_size(1)
+            .max_size(4)
             .runtime(Runtime::Tokio1)
             .wait_timeout(Some(timeout))
             .build()
@@ -1735,17 +1735,17 @@ pub async fn list_sequences(pool: &Pool, schema: &str, with_last_values: bool) -
         .collect();
 
     if with_last_values {
-        for seq in &mut sequences {
-            // Use pg_sequence_last_value() for safer access without direct sequence permissions
-            // Note: pg_sequence_last_value returns bigint, so we use i64 then convert to String
-            let sql = "SELECT pg_sequence_last_value(c.oid) \
-                       FROM pg_class c \
-                       JOIN pg_namespace n ON n.oid = c.relnamespace \
-                       WHERE c.relkind = 'S' AND n.nspname = $1 AND c.relname = $2";
-            if let Ok(stmt) = client.prepare_cached(sql).await {
-                if let Ok(rows) = client.query(&stmt, &[&schema, &seq.name]).await {
-                    if let Some(row) = rows.first() {
-                        if let Ok(val) = row.try_get::<_, i64>(0) {
+        // Batch query: get last values for all sequences in one query
+        let sql = "SELECT c.relname, pg_sequence_last_value(c.oid) \
+                   FROM pg_class c \
+                   JOIN pg_namespace n ON n.oid = c.relnamespace \
+                   WHERE c.relkind = 'S' AND n.nspname = $1";
+        if let Ok(stmt) = client.prepare_cached(sql).await {
+            if let Ok(rows) = client.query(&stmt, &[&schema]).await {
+                for row in rows {
+                    let name: String = row.get(0);
+                    if let Ok(val) = row.try_get::<_, i64>(1) {
+                        if let Some(seq) = sequences.iter_mut().find(|s| s.name == name) {
                             seq.last_value = Some(val.to_string());
                         }
                     }
