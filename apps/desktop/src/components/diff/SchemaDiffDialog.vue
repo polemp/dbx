@@ -22,8 +22,7 @@ import SchemaDiffObjectTree from "@/components/diff/SchemaDiffObjectTree.vue";
 import SchemaDiffDdlPanel from "@/components/diff/SchemaDiffDdlPanel.vue";
 import SchemaDiffDeployStep from "@/components/diff/SchemaDiffDeployStep.vue";
 import SchemaDiffOptionsPanel from "@/components/diff/SchemaDiffOptionsPanel.vue";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+
 import { getSchemaDiffOptionsForDbType } from "@/lib/schemaDiffOptions";
 import { getDefaultOptionsForDbType } from "@/types/schemaDiff";
 import type { SchemaDiffCompareOptions, SchemaDiffConfig } from "@/types/schemaDiff";
@@ -56,7 +55,6 @@ const step = ref<"config" | "compare" | "result" | "deploy-review">("config");
 
 // Deploy confirm dialog
 const showConfirmDialog = ref(false);
-const useTransaction = ref(true);
 
 // Source/Target selections
 const sourceConnectionId = ref("");
@@ -690,32 +688,16 @@ async function onConfirmDeploy() {
   showConfirmDialog.value = false;
   executing.value = true;
   try {
-    let affectedRows = 0;
-    if (useTransaction.value) {
-      const statements = deploySql.value
-        .split(";")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      const result = await api.executeInTransaction(
-        targetConnectionId.value,
-        targetDatabase.value,
-        statements,
-        targetSchema.value,
-      );
-      affectedRows = result.affected_rows;
-    } else {
-      const result = await api.executeScript(
-        targetConnectionId.value,
-        targetDatabase.value,
-        deploySql.value,
-        targetSchema.value,
-      );
-      affectedRows = result.affected_rows;
-    }
+    const result = await api.executeScript(
+      targetConnectionId.value,
+      targetDatabase.value,
+      deploySql.value,
+      targetSchema.value,
+    );
     deployResult.value = {
       success: true,
       message: t("diff.deploySuccess"),
-      affectedRows,
+      affectedRows: result.affected_rows,
     };
     showResultDialog.value = true;
   } catch (e: any) {
@@ -902,11 +884,6 @@ const targetConnectionInfo = computed(() => {
               <span class="text-green-600">{{ t("diff.create") }}: {{ deployStats.create }}</span>
               <span class="text-blue-600">{{ t("diff.modify") }}: {{ deployStats.modify }}</span>
               <span class="text-red-600">{{ t("diff.delete") }}: {{ deployStats.delete }}</span>
-            </div>
-
-            <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
-              <Label for="use-transaction" class="text-sm">{{ t("diff.useTransaction") }}</Label>
-              <Switch id="use-transaction" v-model="useTransaction" />
             </div>
           </div>
 
