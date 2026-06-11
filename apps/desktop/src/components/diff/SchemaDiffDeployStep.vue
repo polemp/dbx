@@ -29,7 +29,6 @@ const emit = defineEmits<{
   "update:deploySql": [sql: string];
   back: [];
   deploy: [];
-  "select-object": [obj: SchemaDiffObject];
 }>();
 
 const editorContainer = ref<HTMLDivElement>();
@@ -37,9 +36,44 @@ const editorView = shallowRef<any>(null);
 const isEditorReady = ref(false);
 const selectedObjectId = ref<string | null>(null);
 
-function handleSelectObject(obj: SchemaDiffObject) {
+// Parse object positions in deploySql
+const objectPositions = computed(() => {
+  const positions = new Map<string, { from: number; to: number }>();
+  const sql = props.deploySql;
+  for (const obj of topLevelObjects.value) {
+    const patterns = [
+      `-- Create ${obj.objectKind}: ${obj.name}`,
+      `-- Modify ${obj.objectKind}: ${obj.name}`,
+      `-- Drop ${obj.objectKind}: ${obj.name}`,
+    ];
+    for (const pattern of patterns) {
+      const index = sql.indexOf(pattern);
+      if (index !== -1) {
+        let endPos = sql.length;
+        const remaining = sql.slice(index + pattern.length);
+        const nextMatch = remaining.match(/--\s*(Create|Modify|Drop)\s+\w+:/);
+        if (nextMatch && nextMatch.index !== undefined) {
+          endPos = index + pattern.length + nextMatch.index;
+        }
+        positions.set(obj.id, { from: index, to: endPos });
+        break;
+      }
+    }
+  }
+  return positions;
+});
+
+async function handleSelectObject(obj: SchemaDiffObject) {
   selectedObjectId.value = obj.id;
-  emit("select-object", obj);
+  if (editorView.value) {
+    const pos = objectPositions.value.get(obj.id);
+    if (pos) {
+      const { EditorView } = await import("@codemirror/view");
+      editorView.value.dispatch({
+        effects: EditorView.scrollIntoView(pos.from, { y: "start" }),
+      });
+    }
+  }
 }
 
 // Filter top-level selected objects (exclude children and none)

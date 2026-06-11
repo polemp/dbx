@@ -5,7 +5,16 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter, DialogContent } from "
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useToast } from "@/composables/useToast";
-import { GitCompareArrows, ArrowLeft, Play, Loader2, Maximize2, Minimize2, AlertTriangle } from "@lucide/vue";
+import {
+  GitCompareArrows,
+  ArrowLeft,
+  Play,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  AlertTriangle,
+  CircleCheck,
+} from "@lucide/vue";
 import * as api from "@/lib/api";
 import { useSchemaDiffConfig } from "@/composables/useSchemaDiffConfig";
 import SchemaDiffConfigStep from "@/components/diff/SchemaDiffConfigStep.vue";
@@ -75,6 +84,9 @@ const deploySql = ref("");
 const deploySqlAll = ref("");
 const executing = ref(false);
 const lastDiffResult = ref<SchemaDiffPreparation | null>(null);
+const targetDbVersion = ref<string | null>(null);
+const showResultDialog = ref(false);
+const deployResult = ref<{ success: boolean; message: string; affectedRows?: number } | null>(null);
 
 // Dialog size memory (width + height + splitpanes ratio)
 const DIALOG_SIZE_KEY = "dbx-schema-diff-size";
@@ -633,6 +645,33 @@ function handleDeleteHistoryConfig(configId: string) {
   toast(t("diff.configDeleted"), 2000);
 }
 
+async function fetchDbVersion() {
+  try {
+    const dbType = getDbType();
+    let sql = "";
+    switch (dbType) {
+      case "postgres":
+      case "opengauss":
+        sql = "SELECT version()";
+        break;
+      case "mysql":
+        sql = "SELECT VERSION()";
+        break;
+      case "sqlite":
+        sql = "SELECT sqlite_version()";
+        break;
+      default:
+        return;
+    }
+    const result = await api.executeScript(targetConnectionId.value, targetDatabase.value, sql, targetSchema.value);
+    if (result.rows && result.rows.length > 0) {
+      targetDbVersion.value = String(result.rows[0][0]);
+    }
+  } catch {
+    targetDbVersion.value = null;
+  }
+}
+
 function handleDeployReview() {
   const selectedObjects = diffObjects.value.filter((o) => o.selected && o.operationType !== "none");
   if (selectedObjects.length === 0) {
@@ -640,6 +679,7 @@ function handleDeployReview() {
     return;
   }
   step.value = "deploy-review";
+  fetchDbVersion();
 }
 
 async function handleDeploy() {
@@ -650,19 +690,40 @@ async function onConfirmDeploy() {
   showConfirmDialog.value = false;
   executing.value = true;
   try {
+    let affectedRows = 0;
     if (useTransaction.value) {
       const statements = deploySql.value
         .split(";")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      await api.executeInTransaction(targetConnectionId.value, targetDatabase.value, statements, targetSchema.value);
+      const result = await api.executeInTransaction(
+        targetConnectionId.value,
+        targetDatabase.value,
+        statements,
+        targetSchema.value,
+      );
+      affectedRows = result.affected_rows;
     } else {
-      await api.executeScript(targetConnectionId.value, targetDatabase.value, deploySql.value, targetSchema.value);
+      const result = await api.executeScript(
+        targetConnectionId.value,
+        targetDatabase.value,
+        deploySql.value,
+        targetSchema.value,
+      );
+      affectedRows = result.affected_rows;
     }
-    toast(t("diff.deploySuccess"), 3000);
-    step.value = "result";
+    deployResult.value = {
+      success: true,
+      message: t("diff.deploySuccess"),
+      affectedRows,
+    };
+    showResultDialog.value = true;
   } catch (e: any) {
-    toast(e?.message || String(e), 5000);
+    deployResult.value = {
+      success: false,
+      message: e?.message || String(e),
+    };
+    showResultDialog.value = true;
   } finally {
     executing.value = false;
   }
@@ -826,6 +887,7 @@ const targetConnectionInfo = computed(() => {
                 {{ t("diff.targetServer") }}: {{ targetConnectionInfo.host }}:{{ targetConnectionInfo.port }}
                 <span class="text-muted-foreground">({{ targetConnectionInfo.dbType }})</span>
               </div>
+              <div v-if="targetDbVersion">{{ t("diff.dbVersion") }}: {{ targetDbVersion }}</div>
               <div>
                 {{ t("diff.targetDatabase") }}:
                 <span class="text-primary font-bold">{{ targetDatabase }}</span>
@@ -853,6 +915,52 @@ const targetConnectionInfo = computed(() => {
             <Button variant="destructive" :disabled="executing" @click="onConfirmDeploy">
               <Loader2 v-if="executing" class="w-3.5 h-3.5 mr-1 animate-spin" />
               {{ t("diff.confirmDeploy") }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <!-- Deploy Result Dialog -->
+      <Dialog v-model:open="showResultDialog">
+        <DialogContent class="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle
+              class="flex items-center gap-2"
+              :class="deployResult?.success ? 'text-green-500' : 'text-destructive'"
+            >
+              <AlertTriangle v-if="!deployResult?.success" class="h-5 w-5" />
+              <CircleCheck v-else class="h-5 w-5" />
+              {{ deployResult?.success ? t("diff.deploySuccess") : t("diff.deployFailed") }}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div class="py-2">
+            <div v-if="deployResult?.success" class="space-y-2">
+              <p class="text-sm text-muted-foreground">{{ t("diff.deploySuccessMessage") }}</p>
+              <div class="bg-muted p-3 rounded text-xs font-mono">
+                <div>{{ t("diff.affectedRows") }}: {{ deployResult.affectedRows ?? 0 }}</div>
+                <div>{{ t("diff.executedStatements") }}: {{ deployStats.total }}</div>
+              </div>
+            </div>
+            <div v-else class="space-y-2">
+              <p class="text-sm text-muted-foreground">{{ t("diff.deployFailedMessage") }}</p>
+              <pre
+                class="text-xs bg-destructive/10 text-destructive p-3 rounded overflow-auto max-h-40 font-mono whitespace-pre-wrap"
+                >{{ deployResult?.message }}</pre
+              >
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" @click="showResultDialog = false">{{ t("diff.close") }}</Button>
+            <Button
+              v-if="deployResult?.success"
+              @click="
+                showResultDialog = false;
+                step = 'result';
+              "
+            >
+              {{ t("diff.backToResult") }}
             </Button>
           </DialogFooter>
         </DialogContent>
