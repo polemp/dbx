@@ -1564,6 +1564,7 @@ export default {
     connName: "连接名称",
     host: "主机",
     port: "端口",
+    serverVersion: "服务器版本",
     copied: "已复制到剪贴板",
     configSaved: "配置已保存",
     configDeleted: "配置已删除",

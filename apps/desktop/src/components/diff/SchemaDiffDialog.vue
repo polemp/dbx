@@ -258,6 +258,18 @@ watch(
   },
 );
 
+// Auto-fetch target database version when connection/database changes
+watch(
+  () => [targetConnectionId.value, targetDatabase.value],
+  async ([connId, db]) => {
+    if (connId && db) {
+      await fetchDbVersion(connId, db, targetSchema.value);
+    } else {
+      targetDbVersion.value = null;
+    }
+  },
+);
+
 function getDbType(): string {
   const targetConfig = store.getConfig(targetConnectionId.value);
   return targetConfig?.db_type || "postgres";
@@ -643,9 +655,11 @@ function handleDeleteHistoryConfig(configId: string) {
   toast(t("diff.configDeleted"), 2000);
 }
 
-async function fetchDbVersion() {
+async function fetchDbVersion(connectionId: string, database: string, schema: string) {
   try {
-    const dbType = getDbType();
+    await store.ensureConnected(connectionId);
+    const config = store.getConfig(connectionId);
+    const dbType = config?.db_type;
     let sql = "";
     switch (dbType) {
       case "postgres":
@@ -661,11 +675,14 @@ async function fetchDbVersion() {
       default:
         return;
     }
-    const result = await api.executeScript(targetConnectionId.value, targetDatabase.value, sql, targetSchema.value);
+    const result = await api.executeQuery(connectionId, database, sql, schema || undefined);
     if (result.rows && result.rows.length > 0) {
       targetDbVersion.value = String(result.rows[0][0]);
+    } else {
+      console.warn("[fetchDbVersion] No rows returned");
     }
-  } catch {
+  } catch (e) {
+    console.error("[fetchDbVersion] Failed to fetch version:", e);
     targetDbVersion.value = null;
   }
 }
@@ -677,7 +694,7 @@ function handleDeployReview() {
     return;
   }
   step.value = "deploy-review";
-  fetchDbVersion();
+  fetchDbVersion(targetConnectionId.value, targetDatabase.value, targetSchema.value);
 }
 
 async function handleDeploy() {

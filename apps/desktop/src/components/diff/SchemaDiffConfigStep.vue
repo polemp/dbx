@@ -50,6 +50,8 @@ const sourceDatabases = ref<string[]>([]);
 const sourceSchemas = ref<string[]>([]);
 const targetDatabases = ref<string[]>([]);
 const targetSchemas = ref<string[]>([]);
+const sourceDbVersion = ref<string | null>(null);
+const targetDbVersion = ref<string | null>(null);
 
 const sqlConnections = computed(() =>
   store.connections.filter((c: any) => c.db_type !== "mongodb" && c.db_type !== "redis"),
@@ -79,14 +81,22 @@ async function loadDatabases(connectionId: string, side: "source" | "target") {
       : [];
     if (side === "source") {
       sourceDatabases.value = dbNames;
+      if (props.sourceDatabase) {
+        await fetchDbVersion(connectionId, props.sourceDatabase, props.sourceSchema, "source");
+      }
     } else {
       targetDatabases.value = dbNames;
+      if (props.targetDatabase) {
+        await fetchDbVersion(connectionId, props.targetDatabase, props.targetSchema, "target");
+      }
     }
   } catch {
     if (side === "source") {
       sourceDatabases.value = [];
+      sourceDbVersion.value = null;
     } else {
       targetDatabases.value = [];
+      targetDbVersion.value = null;
     }
   }
 }
@@ -94,6 +104,7 @@ async function loadDatabases(connectionId: string, side: "source" | "target") {
 async function loadSchemas(side: "source" | "target") {
   const connectionId = side === "source" ? props.sourceConnectionId : props.targetConnectionId;
   const database = side === "source" ? props.sourceDatabase : props.targetDatabase;
+  const schema = side === "source" ? props.sourceSchema : props.targetSchema;
   if (!connectionId || !database) return;
 
   try {
@@ -104,6 +115,7 @@ async function loadSchemas(side: "source" | "target") {
     } else {
       targetSchemas.value = schemas;
     }
+    await fetchDbVersion(connectionId, database, schema, side);
   } catch {
     if (side === "source") {
       sourceSchemas.value = [];
@@ -134,6 +146,7 @@ watch(
       sourceSchemas.value = [];
     }
   },
+  { immediate: true },
 );
 
 watch(
@@ -157,6 +170,7 @@ watch(
       targetSchemas.value = [];
     }
   },
+  { immediate: true },
 );
 
 function connectionIconType(connectionId: string) {
@@ -172,8 +186,46 @@ function getConnectionInfo(connectionId: string) {
     dbType: c.db_type,
     host: c.host,
     port: c.port,
-    serverVersion: (c as any).serverVersion || "--",
   };
+}
+
+async function fetchDbVersion(connectionId: string, database: string, schema: string, side: "source" | "target") {
+  try {
+    await store.ensureConnected(connectionId);
+    const config = store.getConfig(connectionId);
+    const dbType = config?.db_type;
+    let sql = "";
+    switch (dbType) {
+      case "postgres":
+      case "opengauss":
+        sql = "SELECT version()";
+        break;
+      case "mysql":
+        sql = "SELECT VERSION()";
+        break;
+      case "sqlite":
+        sql = "SELECT sqlite_version()";
+        break;
+      default:
+        return;
+    }
+    const result = await api.executeQuery(connectionId, database, sql, schema || undefined);
+    if (result.rows && result.rows.length > 0) {
+      const version = String(result.rows[0][0]);
+      if (side === "source") {
+        sourceDbVersion.value = version;
+      } else {
+        targetDbVersion.value = version;
+      }
+    }
+  } catch (e) {
+    console.error(`[fetchDbVersion] Failed to fetch version for ${side}:`, e);
+    if (side === "source") {
+      sourceDbVersion.value = null;
+    } else {
+      targetDbVersion.value = null;
+    }
+  }
 }
 </script>
 
@@ -229,13 +281,13 @@ function getConnectionInfo(connectionId: string) {
           </Select>
         </div>
 
-        <div v-if="sourceDatabases.length" class="space-y-1.5">
+        <div class="space-y-1.5">
           <Label class="text-xs">{{ t("diff.database") }}</Label>
           <Select
             :model-value="sourceDatabase"
             @update:model-value="(v: any) => $emit('update:sourceDatabase', String(v))"
           >
-            <SelectTrigger class="h-8 text-xs">
+            <SelectTrigger class="h-8 text-xs" :disabled="!sourceDatabases.length">
               <SelectValue :placeholder="t('diff.selectDatabase')" />
             </SelectTrigger>
             <SelectContent>
@@ -244,10 +296,10 @@ function getConnectionInfo(connectionId: string) {
           </Select>
         </div>
 
-        <div v-if="sourceSchemas.length" class="space-y-1.5">
+        <div v-if="isSchemaAware(sourceConfig?.db_type)" class="space-y-1.5">
           <Label class="text-xs">{{ t("diff.schema") }}</Label>
           <Select :model-value="sourceSchema" @update:model-value="(v: any) => $emit('update:sourceSchema', String(v))">
-            <SelectTrigger class="h-8 text-xs">
+            <SelectTrigger class="h-8 text-xs" :disabled="!sourceSchemas.length">
               <SelectValue :placeholder="t('diff.selectSchema')" />
             </SelectTrigger>
             <SelectContent>
@@ -268,6 +320,8 @@ function getConnectionInfo(connectionId: string) {
             <span>{{ getConnectionInfo(sourceConnectionId)?.host }}</span>
             <span class="text-muted-foreground">{{ t("diff.port") }}</span>
             <span>{{ getConnectionInfo(sourceConnectionId)?.port }}</span>
+            <span class="text-muted-foreground">{{ t("diff.serverVersion") }}</span>
+            <span>{{ sourceDbVersion || "--" }}</span>
           </div>
         </div>
       </div>
@@ -310,13 +364,13 @@ function getConnectionInfo(connectionId: string) {
           </Select>
         </div>
 
-        <div v-if="targetDatabases.length" class="space-y-1.5">
+        <div class="space-y-1.5">
           <Label class="text-xs">{{ t("diff.database") }}</Label>
           <Select
             :model-value="targetDatabase"
             @update:model-value="(v: any) => $emit('update:targetDatabase', String(v))"
           >
-            <SelectTrigger class="h-8 text-xs">
+            <SelectTrigger class="h-8 text-xs" :disabled="!targetDatabases.length">
               <SelectValue :placeholder="t('diff.selectDatabase')" />
             </SelectTrigger>
             <SelectContent>
@@ -325,10 +379,10 @@ function getConnectionInfo(connectionId: string) {
           </Select>
         </div>
 
-        <div v-if="targetSchemas.length" class="space-y-1.5">
+        <div v-if="isSchemaAware(targetConfig?.db_type)" class="space-y-1.5">
           <Label class="text-xs">{{ t("diff.schema") }}</Label>
           <Select :model-value="targetSchema" @update:model-value="(v: any) => $emit('update:targetSchema', String(v))">
-            <SelectTrigger class="h-8 text-xs">
+            <SelectTrigger class="h-8 text-xs" :disabled="!targetSchemas.length">
               <SelectValue :placeholder="t('diff.selectSchema')" />
             </SelectTrigger>
             <SelectContent>
@@ -349,6 +403,8 @@ function getConnectionInfo(connectionId: string) {
             <span>{{ getConnectionInfo(targetConnectionId)?.host }}</span>
             <span class="text-muted-foreground">{{ t("diff.port") }}</span>
             <span>{{ getConnectionInfo(targetConnectionId)?.port }}</span>
+            <span class="text-muted-foreground">{{ t("diff.serverVersion") }}</span>
+            <span>{{ targetDbVersion || "--" }}</span>
           </div>
         </div>
       </div>

@@ -1567,6 +1567,7 @@ export default {
     deployFailedMessage: "An error occurred during execution",
     affectedRows: "Affected Rows",
     executedStatements: "Executed Statements",
+    serverVersion: "Server Version",
     close: "Close",
   },
   schemaDiff: {

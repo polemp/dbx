@@ -8,8 +8,26 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import { useTheme } from "@/composables/useTheme";
 import { loadEditorTheme, editorFontTheme } from "@/lib/editorThemes";
 import { Splitpanes, Pane } from "splitpanes";
-import type { SchemaDiffObject, DiffOperationType } from "@/lib/schemaDiff";
-import { ArrowLeft, Copy, Download, Play, Loader2, PlusCircle, XCircle, ArrowRightLeft } from "@lucide/vue";
+import type { SchemaDiffObject, DiffOperationType, DiffObjectKind } from "@/lib/schemaDiff";
+import {
+  ArrowLeft,
+  Copy,
+  Download,
+  Play,
+  Loader2,
+  PlusCircle,
+  XCircle,
+  ArrowRightLeft,
+  Table,
+  Eye,
+  FunctionSquare,
+  ListOrdered,
+  ScrollText,
+  UserCog,
+  ListTree,
+  Link2,
+  Zap,
+} from "@lucide/vue";
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -77,13 +95,16 @@ async function handleSelectObject(obj: SchemaDiffObject) {
 }
 
 // Filter top-level selected objects (exclude children and none)
-const topLevelObjects = computed(() =>
-  props.selectedObjects.filter((o) => {
-    const isTopLevel =
-      !o.id.startsWith("col-") && !o.id.startsWith("idx-") && !o.id.startsWith("fk-") && !o.id.startsWith("trg-");
-    return o.selected && o.operationType !== "none" && isTopLevel;
-  }),
-);
+const topLevelObjects = computed(() => {
+  const operationOrder: Record<DiffOperationType, number> = { create: 0, modify: 1, delete: 2, none: 3 };
+  return props.selectedObjects
+    .filter((o) => {
+      const isTopLevel =
+        !o.id.startsWith("col-") && !o.id.startsWith("idx-") && !o.id.startsWith("fk-") && !o.id.startsWith("trg-");
+      return o.selected && o.operationType !== "none" && isTopLevel;
+    })
+    .sort((a, b) => operationOrder[a.operationType] - operationOrder[b.operationType]);
+});
 
 const operationCounts = computed(() => {
   const counts: Record<DiffOperationType, number> = { create: 0, modify: 0, delete: 0, none: 0 };
@@ -229,6 +250,56 @@ function getOperationLabel(type: DiffOperationType): string {
       return "";
   }
 }
+
+function getObjectIcon(kind: DiffObjectKind) {
+  switch (kind) {
+    case "table":
+      return Table;
+    case "view":
+      return Eye;
+    case "function":
+      return FunctionSquare;
+    case "sequence":
+      return ListOrdered;
+    case "rule":
+      return ScrollText;
+    case "owner":
+      return UserCog;
+    case "index":
+      return ListTree;
+    case "foreignKey":
+      return Link2;
+    case "trigger":
+      return Zap;
+    default:
+      return Table;
+  }
+}
+
+function getObjectIconColor(kind: DiffObjectKind): string {
+  switch (kind) {
+    case "table":
+      return "text-amber-500";
+    case "view":
+      return "text-cyan-500";
+    case "function":
+      return "text-purple-500";
+    case "sequence":
+      return "text-orange-500";
+    case "rule":
+      return "text-pink-500";
+    case "owner":
+      return "text-indigo-500";
+    case "index":
+      return "text-teal-500";
+    case "foreignKey":
+      return "text-lime-500";
+    case "trigger":
+      return "text-rose-500";
+    default:
+      return "text-muted-foreground";
+  }
+}
 </script>
 
 <template>
@@ -267,6 +338,11 @@ function getOperationLabel(type: DiffOperationType): string {
               :is="operationIcons[obj.operationType]"
               class="w-3.5 h-3.5 shrink-0"
               :class="operationColors[obj.operationType]"
+            />
+            <component
+              :is="getObjectIcon(obj.objectKind)"
+              class="w-3.5 h-3.5 shrink-0"
+              :class="getObjectIconColor(obj.objectKind)"
             />
             <span class="truncate">{{ obj.name }}</span>
             <span class="text-[10px] text-muted-foreground shrink-0 ml-auto">
