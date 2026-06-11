@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { diffLines } from "diff";
 import { Button } from "@/components/ui/button";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/composables/useToast";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { DEFAULT_CUSTOM_THEME_DDL_COLORS } from "@/stores/settingsStore";
+import { useDiffScrollSync } from "@/composables/useDiffScrollSync";
+import { buildHunks, type DiffLine } from "@/components/diff/DiffHunkBuilder";
+import DiffSvgConnector from "@/components/diff/DiffSvgConnector.vue";
 import { FileCode, ScrollText, Copy, Play } from "@lucide/vue";
 import type { SchemaDiffObject } from "@/lib/schemaDiff";
 
@@ -39,46 +41,70 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = ref<"ddl" | "script" | "scriptAll">("ddl");
-const sourceDdlRef = ref<HTMLDivElement>();
-const targetDdlRef = ref<HTMLDivElement>();
-const isSyncingScroll = ref(false);
+const diffContainerRef = ref<HTMLDivElement>();
+const leftPaneRef = ref<HTMLDivElement>();
+const rightPaneRef = ref<HTMLDivElement>();
+const containerSize = ref({ width: 0, height: 0 });
+const connectorKey = ref(0);
 
-function syncScroll(from: "source" | "target") {
-  if (isSyncingScroll.value) return;
-  isSyncingScroll.value = true;
-  const source = sourceDdlRef.value;
-  const target = targetDdlRef.value;
-  if (source && target) {
-    if (from === "source") {
-      target.scrollTop = source.scrollTop;
-    } else {
-      source.scrollTop = target.scrollTop;
-    }
+const hunks = computed(() => {
+  if (!props.selectedObject?.sourceDdl && !props.selectedObject?.targetDdl) return [];
+  return buildHunks(props.selectedObject?.sourceDdl || "", props.selectedObject?.targetDdl || "");
+});
+
+const { syncScroll, measureHunks } = useDiffScrollSync({
+  container: diffContainerRef,
+  leftPane: leftPaneRef,
+  rightPane: rightPaneRef,
+  hunks,
+});
+
+function measureAndRefresh() {
+  measureHunks();
+  connectorKey.value = connectorKey.value + 1;
+}
+
+watch(
+  () => props.selectedObject?.id,
+  async () => {
+    await nextTick();
+    updateContainerSize();
+    measureAndRefresh();
+  },
+);
+
+function updateContainerSize() {
+  const el = diffContainerRef.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  containerSize.value = { width: rect.width, height: rect.height };
+}
+
+function handleScroll(from: "left" | "right") {
+  syncScroll(from);
+  measureAndRefresh();
+}
+
+function lineBackground(line: DiffLine): string | undefined {
+  if (line.isPadding) return undefined;
+  if (line.type === "delete") {
+    return toRgba(ddlColors.value.removedRowBg, ddlColors.value.removedRowBgAlpha);
   }
-  isSyncingScroll.value = false;
+  if (line.type === "insert") {
+    return toRgba(ddlColors.value.addedRowBg, ddlColors.value.addedRowBgAlpha);
+  }
+  if (line.type === "modify") {
+    return toRgba(ddlColors.value.modifiedRowBg, ddlColors.value.modifiedRowBgAlpha);
+  }
+  return undefined;
 }
 
-// ---------- Diff viewer ----------
-
-interface DiffRow {
-  type: "equal" | "insert" | "delete" | "modify";
-  leftLine: string;
-  rightLine: string;
-  leftLineNum: number | null;
-  rightLineNum: number | null;
-  charDiffs?: { source: string; target: string }[];
-}
-
-interface MergedPatch {
-  type: "equal" | "insert" | "delete" | "modify";
-  leftValue: string;
-  rightValue: string;
-}
-
-function splitLines(value: string): string[] {
-  const lines = value.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines;
+function lineTextClass(line: DiffLine): string {
+  if (line.isPadding) return "text-transparent";
+  if (line.type === "delete") return "text-red-800 line-through";
+  if (line.type === "insert") return "text-green-800";
+  if (line.type === "modify") return "text-blue-800";
+  return "";
 }
 
 function computeCharDiffs(source: string, target: string): { source: string; target: string }[] {
@@ -139,127 +165,29 @@ function computeCharDiffs(source: string, target: string): { source: string; tar
   return result;
 }
 
-function mergePatches(patches: Array<{ value: string; added?: boolean; removed?: boolean }>): MergedPatch[] {
-  const result: MergedPatch[] = [];
-  let i = 0;
-  while (i < patches.length) {
-    const curr = patches[i];
-    if (curr.removed) {
-      // Collect consecutive removed blocks
-      const removedParts: string[] = [curr.value];
-      let j = i + 1;
-      while (j < patches.length && patches[j].removed) {
-        removedParts.push(patches[j].value);
-        j++;
-      }
-      // Collect consecutive added blocks immediately following the removed ones
-      const addedParts: string[] = [];
-      while (j < patches.length && patches[j].added) {
-        addedParts.push(patches[j].value);
-        j++;
-      }
-      if (addedParts.length > 0) {
-        result.push({
-          type: "modify",
-          leftValue: removedParts.join(""),
-          rightValue: addedParts.join(""),
-        });
-      } else {
-        result.push({ type: "delete", leftValue: removedParts.join(""), rightValue: "" });
-      }
-      i = j;
-    } else if (curr.added) {
-      const addedParts: string[] = [curr.value];
-      let j = i + 1;
-      while (j < patches.length && patches[j].added) {
-        addedParts.push(patches[j].value);
-        j++;
-      }
-      result.push({ type: "insert", leftValue: "", rightValue: addedParts.join("") });
-      i = j;
+function renderModifyLine(
+  leftLine: DiffLine,
+  rightLine: DiffLine,
+): { leftSegments: Segment[]; rightSegments: Segment[] } {
+  const charDiffs = computeCharDiffs(leftLine.content, rightLine.content);
+  const leftSegments: Segment[] = [];
+  const rightSegments: Segment[] = [];
+  for (const cd of charDiffs) {
+    if (cd.source === cd.target) {
+      leftSegments.push({ text: cd.source, changed: false });
+      rightSegments.push({ text: cd.target, changed: false });
     } else {
-      result.push({ type: "equal", leftValue: curr.value, rightValue: curr.value });
-      i++;
+      if (cd.source) leftSegments.push({ text: cd.source, changed: true });
+      if (cd.target) rightSegments.push({ text: cd.target, changed: true });
     }
   }
-  return result;
+  return { leftSegments, rightSegments };
 }
 
-function normalizeDdl(ddl: string): string {
-  return ddl
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""))
-    .join("\n");
+interface Segment {
+  text: string;
+  changed: boolean;
 }
-
-function computeDiffRows(sourceDdl: string, targetDdl: string): DiffRow[] {
-  const normalizedSource = normalizeDdl(sourceDdl);
-  const normalizedTarget = normalizeDdl(targetDdl);
-  const patches = diffLines(normalizedSource, normalizedTarget, { newlineIsToken: false });
-  const merged = mergePatches(patches);
-  const rows: DiffRow[] = [];
-  let leftLineNum = 1;
-  let rightLineNum = 1;
-
-  for (const patch of merged) {
-    if (patch.type === "equal") {
-      for (const line of splitLines(patch.leftValue)) {
-        rows.push({
-          type: "equal",
-          leftLine: line,
-          rightLine: line,
-          leftLineNum: leftLineNum++,
-          rightLineNum: rightLineNum++,
-        });
-      }
-    } else if (patch.type === "delete") {
-      for (const line of splitLines(patch.leftValue)) {
-        rows.push({
-          type: "delete",
-          leftLine: line,
-          rightLine: "",
-          leftLineNum: leftLineNum++,
-          rightLineNum: null,
-        });
-      }
-    } else if (patch.type === "insert") {
-      for (const line of splitLines(patch.rightValue)) {
-        rows.push({
-          type: "insert",
-          leftLine: "",
-          rightLine: line,
-          leftLineNum: null,
-          rightLineNum: rightLineNum++,
-        });
-      }
-    } else if (patch.type === "modify") {
-      const leftLines = splitLines(patch.leftValue);
-      const rightLines = splitLines(patch.rightValue);
-      const maxLines = Math.max(leftLines.length, rightLines.length);
-      for (let i = 0; i < maxLines; i++) {
-        const leftLine = leftLines[i] || "";
-        const rightLine = rightLines[i] || "";
-        rows.push({
-          type: "modify",
-          leftLine,
-          rightLine,
-          leftLineNum: leftLine ? leftLineNum++ : null,
-          rightLineNum: rightLine ? rightLineNum++ : null,
-          charDiffs: computeCharDiffs(leftLine, rightLine),
-        });
-      }
-    }
-  }
-
-  return rows;
-}
-
-const diffRows = computed(() => {
-  if (!props.selectedObject?.sourceDdl && !props.selectedObject?.targetDdl) return [];
-  return computeDiffRows(props.selectedObject?.sourceDdl || "", props.selectedObject?.targetDdl || "");
-});
 
 function copyDeploySql() {
   copyToClipboard(props.deploySql);
@@ -321,82 +249,88 @@ function copyDeploySqlAll() {
         {{ t("diff.noDdlAvailable") }}
       </div>
       <!-- Diff View -->
-      <div v-else class="absolute inset-0 flex font-mono text-xs leading-relaxed">
+      <div v-else ref="diffContainerRef" class="absolute inset-0 flex font-mono text-xs leading-relaxed">
         <!-- Source DDL -->
-        <div ref="sourceDdlRef" class="flex-1 overflow-y-auto" @scroll="syncScroll('source')">
+        <div ref="leftPaneRef" class="w-1/2 overflow-y-auto border-r" @scroll="handleScroll('left')">
           <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
             {{ t("diff.sourceDdl") }}
           </div>
-          <div
-            v-for="(row, idx) in diffRows"
-            :key="`src-${idx}`"
-            class="flex"
-            :style="
-              row.type === 'delete'
-                ? { backgroundColor: toRgba(ddlColors.removedRowBg, ddlColors.removedRowBgAlpha) }
-                : row.type === 'modify'
-                  ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
-                  : undefined
-            "
-          >
-            <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
-              {{ row.leftLineNum ?? "" }}
-            </span>
-            <span class="flex-1 px-1 whitespace-pre">
-              <template v-if="row.type === 'modify' && row.charDiffs">
-                <span
-                  v-for="(cd, ci) in row.charDiffs"
-                  :key="ci"
-                  :style="
-                    cd.source !== cd.target
-                      ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
-                      : undefined
-                  "
-                  >{{ cd.source }}</span
-                >
-              </template>
-              <span v-else>{{ row.leftLine || "\u00A0" }}</span>
-            </span>
+          <div v-for="hunk in hunks" :key="`left-${hunk.id}`" :data-hunk-id="hunk.id">
+            <div
+              v-for="(line, idx) in hunk.leftLines"
+              :key="`l-${hunk.id}-${idx}`"
+              class="flex min-h-[1.5em]"
+              :style="{ backgroundColor: lineBackground(line) }"
+            >
+              <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+                {{ line.lineNumber ?? "" }}
+              </span>
+              <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
+                <template v-if="line.type === 'modify' && !line.isPadding">
+                  <template
+                    v-for="(segment, si) in renderModifyLine(line, hunk.rightLines[idx]).leftSegments"
+                    :key="`ls-${si}`"
+                  >
+                    <span
+                      :style="
+                        segment.changed
+                          ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
+                          : undefined
+                      "
+                      >{{ segment.text }}</span
+                    >
+                  </template>
+                </template>
+                <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
+              </span>
+            </div>
           </div>
         </div>
 
         <!-- Target DDL -->
-        <div ref="targetDdlRef" class="flex-1 overflow-y-auto" @scroll="syncScroll('target')">
+        <div ref="rightPaneRef" class="w-1/2 overflow-y-auto" @scroll="handleScroll('right')">
           <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
             {{ t("diff.targetDdl") }}
           </div>
-          <div
-            v-for="(row, idx) in diffRows"
-            :key="`tgt-${idx}`"
-            class="flex"
-            :style="
-              row.type === 'insert'
-                ? { backgroundColor: toRgba(ddlColors.addedRowBg, ddlColors.addedRowBgAlpha) }
-                : row.type === 'modify'
-                  ? { backgroundColor: toRgba(ddlColors.modifiedRowBg, ddlColors.modifiedRowBgAlpha) }
-                  : undefined
-            "
-          >
-            <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
-              {{ row.rightLineNum ?? "" }}
-            </span>
-            <span class="flex-1 px-1 whitespace-pre">
-              <template v-if="row.type === 'modify' && row.charDiffs">
-                <span
-                  v-for="(cd, ci) in row.charDiffs"
-                  :key="ci"
-                  :style="
-                    cd.source !== cd.target
-                      ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
-                      : undefined
-                  "
-                  >{{ cd.target }}</span
-                >
-              </template>
-              <span v-else>{{ row.rightLine || "\u00A0" }}</span>
-            </span>
+          <div v-for="hunk in hunks" :key="`right-${hunk.id}`" :data-hunk-id="hunk.id">
+            <div
+              v-for="(line, idx) in hunk.rightLines"
+              :key="`r-${hunk.id}-${idx}`"
+              class="flex min-h-[1.5em]"
+              :style="{ backgroundColor: lineBackground(line) }"
+            >
+              <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+                {{ line.lineNumber ?? "" }}
+              </span>
+              <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
+                <template v-if="line.type === 'modify' && !line.isPadding">
+                  <template
+                    v-for="(segment, si) in renderModifyLine(hunk.leftLines[idx], line).rightSegments"
+                    :key="`rs-${si}`"
+                  >
+                    <span
+                      :style="
+                        segment.changed
+                          ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
+                          : undefined
+                      "
+                      >{{ segment.text }}</span
+                    >
+                  </template>
+                </template>
+                <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
+              </span>
+            </div>
           </div>
         </div>
+
+        <!-- SVG Connector Overlay -->
+        <DiffSvgConnector
+          :key="connectorKey"
+          :hunks="hunks"
+          :container-width="containerSize.width"
+          :container-height="containerSize.height"
+        />
       </div>
     </div>
 
