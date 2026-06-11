@@ -1549,6 +1549,7 @@ export default {
     deployToServer: "Deploy to Server",
     deployConfirmTitle: "Final Confirmation",
     deployConfirmMessage: "You are about to deploy the following changes to the target database",
+    targetServer: "Target Server",
     targetDatabase: "Target Database",
     targetSchema: "Target Schema",
     useTransaction: "Execute in transaction (auto-rollback on failure)",

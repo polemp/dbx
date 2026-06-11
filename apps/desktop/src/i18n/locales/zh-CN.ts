@@ -1540,6 +1540,7 @@ export default {
     deployToServer: "部署到服务器",
     deployConfirmTitle: "最终确认",
     deployConfirmMessage: "您即将在目标数据库执行以下部署操作",
+    targetServer: "目标服务器",
     targetDatabase: "目标数据库",
     targetSchema: "目标 Schema",
     useTransaction: "在事务中执行（失败自动回滚）",

@@ -680,6 +680,16 @@ const deployStats = computed(() => {
     total: topLevel.length,
   };
 });
+
+const targetConnectionInfo = computed(() => {
+  const config = store.getConfig(targetConnectionId.value);
+  if (!config) return null;
+  return {
+    host: config.host || "-",
+    port: config.port || "-",
+    dbType: config.db_type || "-",
+  };
+});
 </script>
 
 <template>
@@ -812,8 +822,18 @@ const deployStats = computed(() => {
             <p class="text-sm text-muted-foreground">{{ t("diff.deployConfirmMessage") }}</p>
 
             <div class="bg-muted p-3 rounded text-xs font-mono space-y-1">
-              <div>{{ t("diff.targetDatabase") }}: {{ targetDatabase }}</div>
-              <div>{{ t("diff.targetSchema") }}: {{ targetSchema || "-" }}</div>
+              <div v-if="targetConnectionInfo">
+                {{ t("diff.targetServer") }}: {{ targetConnectionInfo.host }}:{{ targetConnectionInfo.port }}
+                <span class="text-muted-foreground">({{ targetConnectionInfo.dbType }})</span>
+              </div>
+              <div>
+                {{ t("diff.targetDatabase") }}:
+                <span class="text-primary font-bold">{{ targetDatabase }}</span>
+              </div>
+              <div>
+                {{ t("diff.targetSchema") }}:
+                <span class="text-primary font-bold">{{ targetSchema || "-" }}</span>
+              </div>
             </div>
 
             <div class="flex gap-4 text-sm">

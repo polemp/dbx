@@ -29,11 +29,18 @@ const emit = defineEmits<{
   "update:deploySql": [sql: string];
   back: [];
   deploy: [];
+  "select-object": [obj: SchemaDiffObject];
 }>();
 
 const editorContainer = ref<HTMLDivElement>();
 const editorView = shallowRef<any>(null);
 const isEditorReady = ref(false);
+const selectedObjectId = ref<string | null>(null);
+
+function handleSelectObject(obj: SchemaDiffObject) {
+  selectedObjectId.value = obj.id;
+  emit("select-object", obj);
+}
 
 // Filter top-level selected objects (exclude children and none)
 const topLevelObjects = computed(() =>
@@ -201,7 +208,9 @@ function getOperationLabel(type: DiffOperationType): string {
           <div
             v-for="obj in topLevelObjects"
             :key="obj.id"
-            class="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/50"
+            class="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/50 cursor-pointer"
+            :class="{ 'bg-primary/10': selectedObjectId === obj.id }"
+            @click="handleSelectObject(obj)"
           >
             <component
               :is="operationIcons[obj.operationType]"
@@ -237,6 +246,10 @@ function getOperationLabel(type: DiffOperationType): string {
         </Button>
       </div>
       <div class="flex items-center gap-2">
+        <Button variant="ghost" size="sm" class="h-7 text-xs gap-1" @click="$emit('back')">
+          <ArrowLeft class="w-3.5 h-3.5" />
+          {{ t("diff.backToResult") }}
+        </Button>
         <Button variant="ghost" size="sm" class="h-7 text-xs" @click="$emit('back')">
           {{ t("diff.cancel") }}
         </Button>
