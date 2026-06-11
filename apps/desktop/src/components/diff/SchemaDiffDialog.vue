@@ -5,7 +5,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter, DialogContent } from "
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useToast } from "@/composables/useToast";
-import { GitCompareArrows, ArrowLeft, Play, Loader2 } from "@lucide/vue";
+import { GitCompareArrows, ArrowLeft, Play, Loader2, Maximize2, Minimize2 } from "@lucide/vue";
 import * as api from "@/lib/api";
 import { useSchemaDiffConfig } from "@/composables/useSchemaDiffConfig";
 import SchemaDiffConfigStep from "@/components/diff/SchemaDiffConfigStep.vue";
@@ -96,9 +96,20 @@ function handleSplitpanesResized(payload: { panes: { size: number }[] }) {
   }
 }
 
+const isMaximized = ref(false);
+
 // Config step: always use default size 1100x820
 // Result step: use saved size if exists
 const dialogStyle = computed(() => {
+  if (isMaximized.value) {
+    return {
+      width: "100vw",
+      height: "100vh",
+      maxWidth: "100vw",
+      maxHeight: "100vh",
+      borderRadius: "0",
+    };
+  }
   if (step.value === "result") {
     return {
       width: savedSize?.width || "1100px",
@@ -114,6 +125,10 @@ const dialogStyle = computed(() => {
     maxHeight: "calc(100vh - 2rem)",
   };
 });
+
+function toggleMaximize() {
+  isMaximized.value = !isMaximized.value;
+}
 
 let resizeObserver: ResizeObserver | null = null;
 let saveTimeout: number | null = null;
@@ -632,10 +647,16 @@ async function handleDeploy() {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="resize min-w-[800px] flex flex-col overflow-hidden"
+      :class="['min-w-[800px] flex flex-col overflow-hidden', isMaximized ? '' : 'resize']"
       :style="dialogStyle"
       @interact-outside.prevent
     >
+      <Button variant="ghost" size="icon-sm" class="absolute top-2 right-10 z-10" @click="toggleMaximize">
+        <Maximize2 v-if="!isMaximized" class="w-4 h-4" />
+        <Minimize2 v-else class="w-4 h-4" />
+        <span class="sr-only">{{ isMaximized ? t("diff.restore") : t("diff.maximize") }}</span>
+      </Button>
+
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <GitCompareArrows class="w-4 h-4" />

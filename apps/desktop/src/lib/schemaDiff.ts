@@ -191,6 +191,22 @@ export function getOperationLabel(operationType: DiffOperationType): string {
   }
 }
 
+function buildSequenceDdl(seq: SequenceInfo): string {
+  const parts = [`CREATE SEQUENCE ${seq.name}`];
+  if (seq.data_type) parts.push(`    AS ${seq.data_type}`);
+  if (seq.start_value != null) parts.push(`    START WITH ${seq.start_value}`);
+  if (seq.increment != null) parts.push(`    INCREMENT BY ${seq.increment}`);
+  if (seq.min_value != null) parts.push(`    MINVALUE ${seq.min_value}`);
+  if (seq.max_value != null) parts.push(`    MAXVALUE ${seq.max_value}`);
+  else parts.push(`    NO MAXVALUE`);
+  parts.push(`    ${seq.cycle ? "" : "NO "}CYCLE`);
+  parts.push(`;`);
+  if (seq.last_value != null) {
+    parts.push(`SELECT setval('${seq.name}', ${seq.last_value});`);
+  }
+  return parts.join("\n");
+}
+
 export function convertToSchemaDiffObjects(
   tableDiffs: TableDiff[],
   functionDiffs: FunctionDiff[] = [],
@@ -285,6 +301,8 @@ export function convertToSchemaDiffObjects(
       sourceName: diff.type === "added" ? undefined : diff.name,
       targetName: diff.type === "removed" ? undefined : diff.name,
       selected: true,
+      sourceDdl: diff.source ? buildSequenceDdl(diff.source) : undefined,
+      targetDdl: diff.target ? buildSequenceDdl(diff.target) : undefined,
       changes: diff.changes,
     });
   }
