@@ -5,13 +5,16 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter, DialogContent } from "
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useToast } from "@/composables/useToast";
-import { GitCompareArrows, ArrowLeft, Play, Loader2, Maximize2, Minimize2 } from "@lucide/vue";
+import { GitCompareArrows, ArrowLeft, Play, Loader2, Maximize2, Minimize2, AlertTriangle } from "@lucide/vue";
 import * as api from "@/lib/api";
 import { useSchemaDiffConfig } from "@/composables/useSchemaDiffConfig";
 import SchemaDiffConfigStep from "@/components/diff/SchemaDiffConfigStep.vue";
 import SchemaDiffObjectTree from "@/components/diff/SchemaDiffObjectTree.vue";
 import SchemaDiffDdlPanel from "@/components/diff/SchemaDiffDdlPanel.vue";
+import SchemaDiffDeployStep from "@/components/diff/SchemaDiffDeployStep.vue";
 import SchemaDiffOptionsPanel from "@/components/diff/SchemaDiffOptionsPanel.vue";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { getSchemaDiffOptionsForDbType } from "@/lib/schemaDiffOptions";
 import { getDefaultOptionsForDbType } from "@/types/schemaDiff";
 import type { SchemaDiffCompareOptions, SchemaDiffConfig } from "@/types/schemaDiff";
@@ -40,7 +43,11 @@ const props = defineProps<{
 }>();
 
 // Wizard state
-const step = ref<"config" | "compare" | "result">("config");
+const step = ref<"config" | "compare" | "result" | "deploy-review">("config");
+
+// Deploy confirm dialog
+const showConfirmDialog = ref(false);
+const useTransaction = ref(true);
 
 // Source/Target selections
 const sourceConnectionId = ref("");
@@ -626,22 +633,53 @@ function handleDeleteHistoryConfig(configId: string) {
   toast(t("diff.configDeleted"), 2000);
 }
 
-async function handleDeploy() {
+function handleDeployReview() {
   const selectedObjects = diffObjects.value.filter((o) => o.selected && o.operationType !== "none");
   if (selectedObjects.length === 0) {
     toast(t("diff.noObjectsSelected"), 3000);
     return;
   }
+  step.value = "deploy-review";
+}
 
+async function handleDeploy() {
+  showConfirmDialog.value = true;
+}
+
+async function onConfirmDeploy() {
+  showConfirmDialog.value = false;
   executing.value = true;
   try {
+    if (useTransaction.value) {
+      const statements = deploySql.value
+        .split(";")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      await api.executeInTransaction(targetConnectionId.value, targetDatabase.value, statements, targetSchema.value);
+    } else {
+      await api.executeScript(targetConnectionId.value, targetDatabase.value, deploySql.value, targetSchema.value);
+    }
     toast(t("diff.deploySuccess"), 3000);
+    step.value = "result";
   } catch (e: any) {
     toast(e?.message || String(e), 5000);
   } finally {
     executing.value = false;
   }
 }
+
+const deployStats = computed(() => {
+  const selected = diffObjects.value.filter((o) => o.selected && o.operationType !== "none");
+  const isTopLevel = (o: SchemaDiffObject) =>
+    !o.id.startsWith("col-") && !o.id.startsWith("idx-") && !o.id.startsWith("fk-") && !o.id.startsWith("trg-");
+  const topLevel = selected.filter(isTopLevel);
+  return {
+    create: topLevel.filter((o) => o.operationType === "create").length,
+    modify: topLevel.filter((o) => o.operationType === "modify").length,
+    delete: topLevel.filter((o) => o.operationType === "delete").length,
+    total: topLevel.length,
+  };
+});
 </script>
 
 <template>
@@ -721,6 +759,20 @@ async function handleDeploy() {
             </Pane>
           </Splitpanes>
         </template>
+
+        <!-- Deploy Review Step -->
+        <template v-else-if="step === 'deploy-review'">
+          <SchemaDiffDeployStep
+            v-model:deploy-sql="deploySql"
+            :selected-objects="diffObjects"
+            :target-connection-id="targetConnectionId"
+            :target-database="targetDatabase"
+            :target-schema="targetSchema"
+            :executing="executing"
+            @back="step = 'result'"
+            @deploy="handleDeploy"
+          />
+        </template>
       </div>
 
       <!-- Footer -->
@@ -738,13 +790,53 @@ async function handleDeploy() {
         <div v-else></div>
 
         <div v-if="step === 'result'" class="flex items-center gap-2">
-          <Button size="sm" :disabled="!canDeploy || executing" @click="handleDeploy">
+          <Button size="sm" :disabled="!canDeploy || executing" @click="handleDeployReview">
             <Loader2 v-if="executing" class="w-3.5 h-3.5 mr-1 animate-spin" />
             <Play v-else class="w-3.5 h-3.5 mr-1" />
-            {{ t("diff.deploy") }}
+            {{ t("diff.nextStepDeploy") }}
           </Button>
         </div>
       </DialogFooter>
+
+      <!-- Deploy Confirm Dialog -->
+      <Dialog v-model:open="showConfirmDialog">
+        <DialogContent class="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle class="flex items-center gap-2 text-destructive">
+              <AlertTriangle class="h-5 w-5" />
+              {{ t("diff.deployConfirmTitle") }}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div class="py-2 space-y-3">
+            <p class="text-sm text-muted-foreground">{{ t("diff.deployConfirmMessage") }}</p>
+
+            <div class="bg-muted p-3 rounded text-xs font-mono space-y-1">
+              <div>{{ t("diff.targetDatabase") }}: {{ targetDatabase }}</div>
+              <div>{{ t("diff.targetSchema") }}: {{ targetSchema || "-" }}</div>
+            </div>
+
+            <div class="flex gap-4 text-sm">
+              <span class="text-green-600">{{ t("diff.create") }}: {{ deployStats.create }}</span>
+              <span class="text-blue-600">{{ t("diff.modify") }}: {{ deployStats.modify }}</span>
+              <span class="text-red-600">{{ t("diff.delete") }}: {{ deployStats.delete }}</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+              <Label for="use-transaction" class="text-sm">{{ t("diff.useTransaction") }}</Label>
+              <Switch id="use-transaction" v-model="useTransaction" />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" @click="showConfirmDialog = false">{{ t("diff.cancel") }}</Button>
+            <Button variant="destructive" :disabled="executing" @click="onConfirmDeploy">
+              <Loader2 v-if="executing" class="w-3.5 h-3.5 mr-1 animate-spin" />
+              {{ t("diff.confirmDeploy") }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <!-- Options Panel Overlay -->
       <div
