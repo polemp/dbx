@@ -10,6 +10,8 @@ import { useDiffScrollSync } from "@/composables/useDiffScrollSync";
 import { buildHunks, type DiffLine } from "@/components/diff/DiffHunkBuilder";
 import DiffSvgConnector from "@/components/diff/DiffSvgConnector.vue";
 import { FileCode, ScrollText, Copy, Play } from "@lucide/vue";
+import { Splitpanes, Pane } from "splitpanes";
+import "splitpanes/dist/splitpanes.css";
 import type { SchemaDiffObject } from "@/lib/schemaDiff";
 
 const { t } = useI18n();
@@ -59,9 +61,44 @@ const { syncScroll, measureHunks } = useDiffScrollSync({
   hunks,
 });
 
-function measureAndRefresh() {
-  measureHunks();
-  connectorKey.value = connectorKey.value + 1;
+// Cache char-level diff segments so we don't recompute on every render
+const modifySegments = computed(() => {
+  const map = new Map<string, { leftSegments: Segment[]; rightSegments: Segment[] }>();
+  for (const hunk of hunks.value) {
+    if (hunk.type !== "modify") continue;
+    for (let i = 0; i < hunk.leftLines.length; i++) {
+      const left = hunk.leftLines[i];
+      const right = hunk.rightLines[i];
+      if (left.isPadding || right.isPadding) continue;
+      const key = `${hunk.id}:${i}`;
+      map.set(key, renderModifyLine(left, right));
+    }
+  }
+  return map;
+});
+
+let measureRaf: number | null = null;
+let measureTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function requestMeasure() {
+  if (measureRaf) return;
+  measureRaf = requestAnimationFrame(() => {
+    measureRaf = null;
+    measureHunks();
+    connectorKey.value++;
+  });
+}
+
+function requestMeasureDebounced() {
+  if (measureTimeout) clearTimeout(measureTimeout);
+  measureTimeout = setTimeout(() => {
+    requestMeasure();
+  }, 100);
+}
+
+function handleScroll(from: "left" | "right") {
+  syncScroll(from);
+  requestMeasureDebounced();
 }
 
 watch(
@@ -69,7 +106,7 @@ watch(
   async () => {
     await nextTick();
     updateContainerSize();
-    measureAndRefresh();
+    requestMeasure();
   },
 );
 
@@ -80,18 +117,20 @@ function updateContainerSize() {
   containerSize.value = { width: rect.width, height: rect.height };
 }
 
-function handleScroll(from: "left" | "right") {
-  syncScroll(from);
-  measureAndRefresh();
+function onSplitpanesResized() {
+  updateContainerSize();
+  requestMeasure();
 }
 
 function lineBackground(line: DiffLine): string | undefined {
   if (line.isPadding) return undefined;
   if (line.type === "delete") {
-    return toRgba(ddlColors.value.removedRowBg, ddlColors.value.removedRowBgAlpha);
+    // source-only = will be added to target = green
+    return toRgba(ddlColors.value.addedRowBg, ddlColors.value.addedRowBgAlpha);
   }
   if (line.type === "insert") {
-    return toRgba(ddlColors.value.addedRowBg, ddlColors.value.addedRowBgAlpha);
+    // target-only = will be removed from target = red
+    return toRgba(ddlColors.value.removedRowBg, ddlColors.value.removedRowBgAlpha);
   }
   if (line.type === "modify") {
     return toRgba(ddlColors.value.modifiedRowBg, ddlColors.value.modifiedRowBgAlpha);
@@ -101,9 +140,7 @@ function lineBackground(line: DiffLine): string | undefined {
 
 function lineTextClass(line: DiffLine): string {
   if (line.isPadding) return "text-transparent";
-  if (line.type === "delete") return "text-red-800 line-through";
-  if (line.type === "insert") return "text-green-800";
-  if (line.type === "modify") return "text-blue-800";
+  if (line.type === "insert") return "line-through opacity-80";
   return "";
 }
 
@@ -249,80 +286,96 @@ function copyDeploySqlAll() {
         {{ t("diff.noDdlAvailable") }}
       </div>
       <!-- Diff View -->
-      <div v-else ref="diffContainerRef" class="absolute inset-0 flex font-mono text-xs leading-relaxed">
-        <!-- Source DDL -->
-        <div ref="leftPaneRef" class="w-1/2 overflow-y-auto border-r" @scroll="handleScroll('left')">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.sourceDdl") }}
-          </div>
-          <div v-for="hunk in hunks" :key="`left-${hunk.id}`" :data-hunk-id="hunk.id">
-            <div
-              v-for="(line, idx) in hunk.leftLines"
-              :key="`l-${hunk.id}-${idx}`"
-              class="flex min-h-[1.5em]"
-              :style="{ backgroundColor: lineBackground(line) }"
-            >
-              <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
-                {{ line.lineNumber ?? "" }}
-              </span>
-              <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
-                <template v-if="line.type === 'modify' && !line.isPadding">
-                  <template
-                    v-for="(segment, si) in renderModifyLine(line, hunk.rightLines[idx]).leftSegments"
-                    :key="`ls-${si}`"
-                  >
-                    <span
-                      :style="
-                        segment.changed
-                          ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
-                          : undefined
-                      "
-                      >{{ segment.text }}</span
-                    >
-                  </template>
-                </template>
-                <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
-              </span>
+      <div v-else ref="diffContainerRef" class="absolute inset-0 font-mono text-xs leading-relaxed">
+        <Splitpanes class="h-full" @resized="onSplitpanesResized">
+          <!-- Source DDL -->
+          <Pane min-size="20">
+            <div ref="leftPaneRef" class="h-full overflow-y-auto border-r" @scroll="handleScroll('left')">
+              <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+                {{ t("diff.sourceDdl") }}
+              </div>
+              <div v-for="hunk in hunks" :key="`left-${hunk.id}`" :data-hunk-id="hunk.id">
+                <div
+                  v-for="(line, idx) in hunk.leftLines"
+                  :key="`l-${hunk.id}-${idx}`"
+                  class="flex min-h-[1.5em]"
+                  :class="{
+                    'border-l border-r border-yellow-500/40': hunk.type === 'modify',
+                    'border-t rounded-t-sm': hunk.type === 'modify' && idx === 0,
+                    'border-b rounded-b-sm': hunk.type === 'modify' && idx === hunk.leftLines.length - 1,
+                  }"
+                  :style="{ backgroundColor: lineBackground(line) }"
+                >
+                  <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+                    {{ line.lineNumber ?? "" }}
+                  </span>
+                  <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
+                    <template v-if="line.type === 'modify' && !line.isPadding">
+                      <template
+                        v-for="(segment, si) in modifySegments.get(`${hunk.id}:${idx}`)?.leftSegments ?? []"
+                        :key="`ls-${si}`"
+                      >
+                        <span
+                          :style="
+                            segment.changed
+                              ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
+                              : undefined
+                          "
+                          >{{ segment.text }}</span
+                        >
+                      </template>
+                    </template>
+                    <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </Pane>
 
-        <!-- Target DDL -->
-        <div ref="rightPaneRef" class="w-1/2 overflow-y-auto" @scroll="handleScroll('right')">
-          <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
-            {{ t("diff.targetDdl") }}
-          </div>
-          <div v-for="hunk in hunks" :key="`right-${hunk.id}`" :data-hunk-id="hunk.id">
-            <div
-              v-for="(line, idx) in hunk.rightLines"
-              :key="`r-${hunk.id}-${idx}`"
-              class="flex min-h-[1.5em]"
-              :style="{ backgroundColor: lineBackground(line) }"
-            >
-              <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
-                {{ line.lineNumber ?? "" }}
-              </span>
-              <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
-                <template v-if="line.type === 'modify' && !line.isPadding">
-                  <template
-                    v-for="(segment, si) in renderModifyLine(hunk.leftLines[idx], line).rightSegments"
-                    :key="`rs-${si}`"
-                  >
-                    <span
-                      :style="
-                        segment.changed
-                          ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
-                          : undefined
-                      "
-                      >{{ segment.text }}</span
-                    >
-                  </template>
-                </template>
-                <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
-              </span>
+          <!-- Target DDL -->
+          <Pane min-size="20">
+            <div ref="rightPaneRef" class="h-full overflow-y-auto" @scroll="handleScroll('right')">
+              <div class="sticky top-0 bg-muted/50 px-3 py-1.5 text-xs font-medium border-b z-10">
+                {{ t("diff.targetDdl") }}
+              </div>
+              <div v-for="hunk in hunks" :key="`right-${hunk.id}`" :data-hunk-id="hunk.id">
+                <div
+                  v-for="(line, idx) in hunk.rightLines"
+                  :key="`r-${hunk.id}-${idx}`"
+                  class="flex min-h-[1.5em]"
+                  :class="{
+                    'border-l border-r border-yellow-500/40': hunk.type === 'modify',
+                    'border-t rounded-t-sm': hunk.type === 'modify' && idx === 0,
+                    'border-b rounded-b-sm': hunk.type === 'modify' && idx === hunk.rightLines.length - 1,
+                  }"
+                  :style="{ backgroundColor: lineBackground(line) }"
+                >
+                  <span class="text-muted-foreground w-8 text-right pr-2 select-none shrink-0">
+                    {{ line.lineNumber ?? "" }}
+                  </span>
+                  <span class="flex-1 px-1 whitespace-pre" :class="lineTextClass(line)">
+                    <template v-if="line.type === 'modify' && !line.isPadding">
+                      <template
+                        v-for="(segment, si) in modifySegments.get(`${hunk.id}:${idx}`)?.rightSegments ?? []"
+                        :key="`rs-${si}`"
+                      >
+                        <span
+                          :style="
+                            segment.changed
+                              ? { backgroundColor: toRgba(ddlColors.modifiedCharBg, ddlColors.modifiedCharBgAlpha) }
+                              : undefined
+                          "
+                          >{{ segment.text }}</span
+                        >
+                      </template>
+                    </template>
+                    <span v-else>{{ line.isPadding ? "\u00A0" : line.content }}</span>
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </Pane>
+        </Splitpanes>
 
         <!-- SVG Connector Overlay -->
         <DiffSvgConnector
@@ -375,3 +428,15 @@ function copyDeploySqlAll() {
     </div>
   </div>
 </template>
+
+<style scoped>
+:deep(.splitpanes--vertical > .splitpanes__splitter) {
+  background-color: hsl(var(--border));
+  width: 4px;
+  cursor: col-resize;
+  position: relative;
+}
+:deep(.splitpanes--vertical > .splitpanes__splitter:hover) {
+  background-color: hsl(var(--primary));
+}
+</style>

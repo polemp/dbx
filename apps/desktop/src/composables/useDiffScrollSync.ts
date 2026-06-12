@@ -19,7 +19,6 @@ export function useDiffScrollSync({ container, leftPane, rightPane, hunks }: Use
     isSyncingScroll.value = true;
     target.scrollTop = source.scrollTop;
     isSyncingScroll.value = false;
-    measureHunks();
   }
 
   function measureHunks() {

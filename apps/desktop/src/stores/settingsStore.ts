@@ -238,10 +238,10 @@ export const DEFAULT_CUSTOM_THEME_DDL_COLORS: CustomThemeDdlColors = {
   // delete (removed) = red
   removedRowBg: "#ef4444",
   removedRowBgAlpha: 10,
-  // modify = blue
-  modifiedRowBg: "#3b82f6",
-  modifiedRowBgAlpha: 5,
-  modifiedCharBg: "#60a5fa",
+  // modify = yellow
+  modifiedRowBg: "#eab308",
+  modifiedRowBgAlpha: 10,
+  modifiedCharBg: "#f59e0b",
   modifiedCharBgAlpha: 50,
 };
 

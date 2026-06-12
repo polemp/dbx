@@ -760,7 +760,7 @@ function handleImport() {
                     <div
                       class="font-mono text-xs px-1 py-0.5"
                       :style="{
-                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                        backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
                       }"
                     >
                       CREATE TABLE new_orders (
@@ -768,7 +768,7 @@ function handleImport() {
                     <div
                       class="font-mono text-xs px-1 py-0.5"
                       :style="{
-                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
+                        backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
                       }"
                     >
                       id INT);
@@ -779,7 +779,7 @@ function handleImport() {
                     <div
                       class="font-mono text-xs px-1 py-0.5"
                       :style="{
-                        backgroundColor: toRgba(localDdlColors.addedRowBg, localDdlColors.addedRowBgAlpha),
+                        backgroundColor: toRgba(localDdlColors.removedRowBg, localDdlColors.removedRowBgAlpha),
                       }"
                     >
                       DROP TABLE old_users;
