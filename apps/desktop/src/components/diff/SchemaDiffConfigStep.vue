@@ -83,11 +83,19 @@ async function loadDatabases(connectionId: string, side: "source" | "target") {
       sourceDatabases.value = dbNames;
       if (props.sourceDatabase) {
         await fetchDbVersion(connectionId, props.sourceDatabase, props.sourceSchema, "source");
+        // Ensure schema list is loaded after databases are available (handles race with sourceDatabase watcher)
+        if (isSchemaAware(sourceConfig.value?.db_type)) {
+          await loadSchemas("source");
+        }
       }
     } else {
       targetDatabases.value = dbNames;
       if (props.targetDatabase) {
         await fetchDbVersion(connectionId, props.targetDatabase, props.targetSchema, "target");
+        // Ensure schema list is loaded after databases are available (handles race with targetDatabase watcher)
+        if (isSchemaAware(targetConfig.value?.db_type)) {
+          await loadSchemas("target");
+        }
       }
     }
   } catch {
