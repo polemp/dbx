@@ -181,13 +181,13 @@ export function getOperationType(diffType: string): DiffOperationType {
 export function getOperationLabel(operationType: DiffOperationType): string {
   switch (operationType) {
     case "modify":
-      return "要修改的对象";
+      return "diff.operationLabel.modify";
     case "create":
-      return "要创建的对象";
+      return "diff.operationLabel.create";
     case "delete":
-      return "要删除的对象";
+      return "diff.operationLabel.delete";
     case "none":
-      return "无操作";
+      return "diff.operationLabel.none";
   }
 }
 
@@ -448,23 +448,23 @@ export function groupDiffObjects(objects: SchemaDiffObject[]): OperationGroup[] 
 function getObjectTypeLabel(kind: DiffObjectKind): string {
   switch (kind) {
     case "table":
-      return "表";
+      return "diff.objectKindLabel.table";
     case "view":
-      return "视图";
+      return "diff.objectKindLabel.view";
     case "function":
-      return "函数";
+      return "diff.objectKindLabel.function";
     case "sequence":
-      return "序列";
+      return "diff.objectKindLabel.sequence";
     case "rule":
-      return "规则";
+      return "diff.objectKindLabel.rule";
     case "owner":
-      return "所有者";
+      return "diff.objectKindLabel.owner";
     case "index":
-      return "索引";
+      return "diff.objectKindLabel.index";
     case "foreignKey":
-      return "外键";
+      return "diff.objectKindLabel.foreignKey";
     case "trigger":
-      return "触发器";
+      return "diff.objectKindLabel.trigger";
     default:
       return kind;
   }

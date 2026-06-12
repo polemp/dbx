@@ -498,7 +498,7 @@ function handleToggleObjectSelection(objectId: string, selected: boolean) {
 }
 
 function regenerateDeploySql() {
-  // 只选择顶层对象（排除 children）
+  // Only select top-level objects (exclude children)
   const selected = diffObjects.value.filter((o) => {
     const isTopLevel =
       !o.id.startsWith("col-") && !o.id.startsWith("idx-") && !o.id.startsWith("fk-") && !o.id.startsWith("trg-");
@@ -643,7 +643,10 @@ function handleLoadHistoryConfig(config: SchemaDiffConfig) {
 
 function handleSaveConfig() {
   if (activeConfig.value) {
-    const name = window.prompt(t("diff.saveConfigPrompt") || "请输入配置名称:", activeConfig.value.name || "Default");
+    const name = window.prompt(
+      t("diff.saveConfigPrompt") || "Please enter config name:",
+      activeConfig.value.name || "Default",
+    );
     if (name === null) return; // User cancelled
     const configToSave = { ...activeConfig.value, name: name.trim() || "Default" };
     saveToHistory(configToSave);

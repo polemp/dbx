@@ -126,23 +126,23 @@ function getObjectIconColor(kind: DiffObjectKind): string {
 function getObjectTypeLabel(kind: DiffObjectKind): string {
   switch (kind) {
     case "table":
-      return "表";
+      return "diff.objectKindLabel.table";
     case "view":
-      return "视图";
+      return "diff.objectKindLabel.view";
     case "function":
-      return "函数";
+      return "diff.objectKindLabel.function";
     case "sequence":
-      return "序列";
+      return "diff.objectKindLabel.sequence";
     case "rule":
-      return "规则";
+      return "diff.objectKindLabel.rule";
     case "owner":
-      return "所有者";
+      return "diff.objectKindLabel.owner";
     case "index":
-      return "索引";
+      return "diff.objectKindLabel.index";
     case "foreignKey":
-      return "外键";
+      return "diff.objectKindLabel.foreignKey";
     case "trigger":
-      return "触发器";
+      return "diff.objectKindLabel.trigger";
     default:
       return kind;
   }
@@ -222,7 +222,7 @@ function formatObjectName(obj: SchemaDiffObject): string {
           class="w-4 h-4 shrink-0"
           :class="operationColors[group.operationType]"
         />
-        <span :class="operationColors[group.operationType]">{{ group.label }}</span>
+        <span :class="operationColors[group.operationType]">{{ t(group.label) }}</span>
         <span class="text-xs text-muted-foreground ml-1">
           ({{ t("diff.selectedCount", { selected: group.selectedCount, total: group.count }) }})
         </span>
@@ -253,7 +253,7 @@ function formatObjectName(obj: SchemaDiffObject): string {
               class="w-3.5 h-3.5 shrink-0"
               :class="getObjectIconColor(typeGroup.kind)"
             />
-            <span>{{ getObjectTypeLabel(typeGroup.kind) }}</span>
+            <span>{{ t(getObjectTypeLabel(typeGroup.kind)) }}</span>
             <span class="text-xs text-muted-foreground">({{ typeGroup.objects.length }})</span>
           </button>
 

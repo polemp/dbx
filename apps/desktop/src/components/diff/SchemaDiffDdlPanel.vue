@@ -271,14 +271,14 @@ function copyDeploySqlAll() {
 
     <!-- DDL Compare -->
     <div v-if="activeTab === 'ddl'" class="flex-1 overflow-hidden relative">
-      <!-- 未选择对象 -->
+      <!-- No object selected -->
       <div
         v-if="!selectedObject"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
       >
         {{ t("diff.selectObjectToCompare") }}
       </div>
-      <!-- 无DDL数据 -->
+      <!-- No DDL data available -->
       <div
         v-else-if="!selectedObject.sourceDdl && !selectedObject.targetDdl"
         class="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"

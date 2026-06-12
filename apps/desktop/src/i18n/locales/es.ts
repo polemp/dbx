@@ -1415,6 +1415,23 @@ export default {
     swap: "Intercambiar origen y destino",
     syncProgress: "Ejecutando: {current}/{total}",
     syncSummary: "Exitosos {success}, fallidos {failed}",
+    operationLabel: {
+      modify: "Objetos a modificar",
+      create: "Objetos a crear",
+      delete: "Objetos a eliminar",
+      none: "Sin operación",
+    },
+    objectKindLabel: {
+      table: "Tabla",
+      view: "Vista",
+      function: "Función",
+      sequence: "Secuencia",
+      rule: "Regla",
+      owner: "Propietario",
+      index: "Índice",
+      foreignKey: "Clave foránea",
+      trigger: "Disparador",
+    },
   },
   schemaDiff: {
     optionsTitle: "Opciones de comparación",

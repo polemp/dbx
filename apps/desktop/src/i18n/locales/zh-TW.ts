@@ -1479,6 +1479,23 @@ export default {
     swap: "交換來源與目標",
     syncProgress: "執行中： {current}/{total}",
     syncSummary: "成功 {success} 條，失敗 {failed} 條",
+    operationLabel: {
+      modify: "要修改的物件",
+      create: "要建立的物件",
+      delete: "要刪除的物件",
+      none: "無操作",
+    },
+    objectKindLabel: {
+      table: "資料表",
+      view: "視圖",
+      function: "函數",
+      sequence: "序列",
+      rule: "規則",
+      owner: "擁有者",
+      index: "索引",
+      foreignKey: "外鍵",
+      trigger: "觸發器",
+    },
   },
   schemaDiff: {
     optionsTitle: "比較選項",
